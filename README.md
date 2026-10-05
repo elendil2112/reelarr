@@ -2,7 +2,7 @@
 
 # Reelarr
 
-[![ci](https://github.com/OWNER/reelarr/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/reelarr/actions/workflows/ci.yml)
+[![ci](https://github.com/elendil2112/reelarr/actions/workflows/ci.yml/badge.svg)](https://github.com/elendil2112/reelarr/actions/workflows/ci.yml)
 [![license: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
 **An \*arr for live recordings.** Reelarr watches for concert recordings —
@@ -51,7 +51,7 @@ docker compose up -d
 
 No `.env` is required. Then open `http://<your-server>:8189` and the setup
 wizard takes it from there. The image is multi-arch (amd64 and arm64):
-`ghcr.io/OWNER/reelarr:latest`. To build it yourself instead, clone the repo
+`ghcr.io/elendil2112/reelarr:latest`. To build it yourself instead, clone the repo
 and run `docker compose up -d --build`.
 
 Docker can only give Reelarr the folders you mount, so mount the folder that

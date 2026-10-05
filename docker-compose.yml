@@ -12,7 +12,7 @@
 # .env.example), but nothing has to be.
 services:
   reelarr:
-    image: ghcr.io/OWNER/reelarr:${REELARR_TAG:-latest}
+    image: ghcr.io/elendil2112/reelarr:${REELARR_TAG:-latest}
     build: .                      # only used by --build, or if the image can't be pulled
     container_name: reelarr
     ports:
