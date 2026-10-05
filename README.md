@@ -2,6 +2,9 @@
 
 # Reelarr
 
+[![ci](https://github.com/OWNER/reelarr/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/reelarr/actions/workflows/ci.yml)
+[![license: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+
 **An \*arr for live recordings.** Reelarr watches for concert recordings —
 soundboards, audience tapes, matrices, Live Music Archive downloads — works
 out who played, where, when, what songs and what kind of source it is, tags
@@ -23,7 +26,16 @@ Reelarr learns the correction for every show after it.
 - **Learns.** Corrections you make become standing rules, and your existing
   library teaches it your artists, venues and song titles.
 
-> Version 0.0.6 — pre-release. See [`CHANGELOG.md`](CHANGELOG.md).
+<p align="center">
+  <img src="docs/screenshots/shows.png" width="49%" alt="Shows: every show handled, filed with a consistent name">
+  <img src="docs/screenshots/queue.png" width="49%" alt="Queue: wanted releases and a sortable download table">
+  <img src="docs/screenshots/artists.png" width="49%" alt="Artists: monitored artists and what each check found">
+  <img src="docs/screenshots/review.png" width="49%" alt="Review: shows Reelarr wasn't sure about, ready to correct">
+</p>
+
+> Version 0.1.0 — the first public release. See [`CHANGELOG.md`](CHANGELOG.md).
+>
+> This project is entirely vibecoded with Claude Opus 5.5.
 
 ---
 
@@ -31,12 +43,16 @@ Reelarr learns the correction for every show after it.
 
 ### Docker (recommended)
 
+Download [`docker-compose.yml`](docker-compose.yml) into a folder and run:
+
 ```sh
-docker compose up -d --build
+docker compose up -d
 ```
 
 No `.env` is required. Then open `http://<your-server>:8189` and the setup
-wizard takes it from there.
+wizard takes it from there. The image is multi-arch (amd64 and arm64):
+`ghcr.io/OWNER/reelarr:latest`. To build it yourself instead, clone the repo
+and run `docker compose up -d --build`.
 
 Docker can only give Reelarr the folders you mount, so mount the folder that
 holds your downloads **and** your music. On unRAID, a `.env` next to the
@@ -49,6 +65,12 @@ UMASK=000
 REELARR_MEDIA_DIR=/mnt/user
 REELARR_MEDIA_PATH=/mnt/user
 ```
+
+> **If the setup wizard's folder browser is empty** — or only shows an
+> empty `/media` — Docker hasn't given Reelarr your music yet. That's set in
+> Docker, not in the app: create the `.env` above (or set the paths below),
+> run `docker compose up -d`, and check again. The wizard shows the same
+> instructions, for unRAID, compose, `docker run` and NAS boxes.
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -106,7 +128,7 @@ in Settings afterwards.
 | **Shows** | Everything Reelarr has handled. In dry run, each show has a plan you can open. |
 | **Artists** | Artists to monitor for new uploads, with per-artist sources, formats and upgrades. |
 | **Discover** | Search the Live Music Archive (or paste an archive.org link) and grab shows. |
-| **Queue** | Wanted releases waiting on you, what's downloading, what's coming in. |
+| **Queue** | Wanted releases waiting on you; what's downloading, sortable by client order, progress, speed, ETA and more; what's coming in. |
 | **Review** | Shows Reelarr wasn't sure about. Correct and file them. |
 | **Maintenance** | Learn from your manual fixes, find problems, re-check the library against setlist.fm. |
 | **Activity** | Every change on disk — with Undo — and every event. |
@@ -128,11 +150,46 @@ Live recordings don't behave like TV episodes — there's no list of what
 *wanted* means: **a new upload you don't already have** (or a better source
 of a date you do, if you turn on upgrades), **in a source and format you'd
 accept**. Each upload is judged once, and the Queue shows why it was or
-wasn't picked. A newly monitored artist looks back 30 days, so following the
-Grateful Dead doesn't queue fifteen thousand tapes.
+wasn't picked (Queue → Passed over). When you add an artist you choose how far
+back to look — new uploads only, 30 days, a year, or everything — and
+whether to ask you or grab automatically; it's checked straight away.
+
+For anything to reach your download client you need a **.torrent folder**
+and a **download client** (Settings → Torrents), the artist set to **grab
+automatically**, and Reelarr **live** (dry run holds automatic grabs in the
+Queue). The Artists page tells you which of these is missing.
 
 Uploads that archive.org marks stream-only — many Grateful Dead soundboards,
 by the band's request — are recognised and skipped rather than grabbed.
+
+### Early and late shows
+
+Two sets on one night, arriving as two folders, are filed as **one show**.
+When two folders have the same artist and date, and one says *early* and the
+other *late* — in the folder name, or as "early show" / "late show" in the
+info file — Reelarr puts both folders, untouched, inside one show folder:
+
+```
+Bob Weir/bw1978-03-25 The Old Waldorf, San Francisco, CA [SBD 082964 TinyDancer & AUD Miller]/
+    bwb1978-03-25.sbd.tinydancer.82964.sbeok.flac/        disc 1 (early)
+    Bob Weir Band 1978-03-25 San Francisco,CA.late…/       disc 2 (late)
+```
+
+Every track gets the same album, with both sources in the bracket, early
+first; the early show is disc 1 and the late show disc 2, each numbered from 1.
+A folder you drop in that already holds an early and a late subfolder is
+handled the same way. Only a clear pair is combined — if one folder doesn't
+say which show it is, or there are two lates, they're filed separately.
+
+### Places
+
+Tags read `Venue, City, ST`. In the US and Canada that's the two-letter state
+or province; everywhere else it's the country in full — `Paradiso, Amsterdam,
+Netherlands`. A built-in list of the world's cities (from
+[GeoNames](https://www.geonames.org), CC BY 4.0) turns `NL`, `Holland` or
+`Deutschland` into the country, tells `Berlin, DE` (Germany) from `Dover, DE`
+(Delaware), and fills a missing state when the city is unambiguous. Prefer
+"England" to "United Kingdom"? Settings → Country spellings.
 
 ### Safety
 
@@ -143,17 +200,6 @@ by the band's request — are recognised and skipped rather than grabbed.
 - **Undo**: Activity → Recent changes puts files back and restores their tags.
 - **Backups**: System → Make a backup; one is also made before every upgrade.
   To restore, stop Reelarr, unzip a backup into the config folder, start it.
-
----
-
-## Coming from Barbosa
-
-Point Reelarr's `/config` at a **copy** of Barbosa's config folder. On first
-start `barbosa.db` is copied to `reelarr.db` (the original is never touched),
-your learned corrections carry over, and the install stays live with its old
-16-bit/44.1 conversion setting, since that's how your library was built. The
-setup wizard asks you to confirm your folders, because the container paths
-have changed. The old `BARBOSA_*` environment variables still work.
 
 ---
 
@@ -177,14 +223,29 @@ Rejected and replaced shows are set aside in `_rejected`, `_duplicates` and
 The card says what it was unsure of — usually a missing venue or a setlist it
 couldn't check. Fix it and press File it.
 
+**Does it work with private trackers?**
+Reelarr hands `.torrent` files to your download client and brings finished
+downloads back in — so anything you download yourself works. Drop the
+`.torrent` in Reelarr's torrent folder, or set your client's category to
+Reelarr's label. Reelarr itself only searches the Live Music Archive; it
+doesn't log in to or scrape other sites.
+
+**Can it tell an official release from a fan recording?**
+Yes: "Official" in a `[bracket]` always counts, and Settings → Filing policy →
+*official labels* takes the names of the stores or labels you buy from.
+Official releases are never replaced by fan recordings.
+
+**Shows outside the US — what goes where the state would?**
+The country, spelled out: `Paradiso, Amsterdam, Netherlands`. Prefer
+"England" to "United Kingdom"? Settings → Country spellings.
+
 **The files have the wrong owner.**
 Set `PUID`/`PGID` to your system's user and group (unRAID: 99/100; a typical
 Linux user: 1000/1000) and recreate the container.
 
 **How do I update?**
-Replace the program files (keep `config/`), then
-`docker compose up -d --build`. Upgrades migrate your databases and back them
-up first.
+`docker compose pull && docker compose up -d` (or `--build` if you build from
+source). Upgrades migrate your databases and back them up first.
 
 **How do I stop it?**
 `docker compose down`. Everything is saved in `config/`.
@@ -204,9 +265,13 @@ never replaces them with fan recordings.
 ## Development
 
 ```sh
-pip install -r requirements.txt pytest httpx
-python -m pytest tests        # needs ffmpeg
+pip install -r requirements.txt pytest httpx ruff
+python -m pytest tests -q     # needs ffmpeg
+ruff check .
 ```
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security problems: please report them
+privately — see [`SECURITY.md`](SECURITY.md).
 
 ## Licence
 

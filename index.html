@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reelarr</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/style.css?v=14">
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="masthead">
+      <svg class="mark" id="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="27" fill="none" stroke="var(--amber)" stroke-width="5"/>
+        <circle cx="32" cy="32" r="7" fill="var(--amber)"/>
+        <g stroke="var(--amber)" stroke-width="4.5" stroke-linecap="round" fill="none">
+          <path d="M32 13 A19 19 0 0 1 48 23"/><path d="M48 41 A19 19 0 0 1 32 51"/><path d="M16 41 A19 19 0 0 1 16 23"/>
+        </g>
+      </svg>
+      <div>
+        <h1>Reelarr</h1>
+        <p class="sub">Live recordings, filed.</p>
+      </div>
+    </div>
+    <nav>
+      <button class="navbtn active" data-view="shows">Shows</button>
+      <button class="navbtn" data-view="artists">Artists</button>
+      <button class="navbtn" data-view="discover">Discover</button>
+      <button class="navbtn" data-view="queue">Queue <span id="wanted-count" class="count violet" hidden></span></button>
+      <button class="navbtn" data-view="review">Review <span id="review-count" class="count violet" hidden></span></button>
+      <span id="provider-nav"></span>
+      <button class="navbtn" data-view="maintenance">Maintenance</button>
+      <button class="navbtn" data-view="activity">Activity</button>
+      <button class="navbtn" data-view="settings">Settings</button>
+      <button class="navbtn" data-view="system">System</button>
+    </nav>
+    <div class="rail-foot">
+      <div class="stat"><span id="stat-watch">–</span> in the watch folder</div>
+      <div class="stat"><span id="stat-filed">–</span> shows filed</div>
+      <div class="stat dim" id="stat-nextscan">next scan –</div>
+      <button id="btn-scan" class="brass small">Scan now</button>
+      <div class="stat dim mono" id="stat-version"></div>
+      <button id="btn-logout" class="quiet small" hidden>Sign out</button>
+    </div>
+  </aside>
+
+  <main class="ledger">
+
+    <div id="safety-banner" class="safety-banner" hidden>
+      <div>
+        <strong>Dry run — nothing on disk is being changed.</strong>
+        <span>New shows are identified and given a plan you can read under Shows. Things you approve or reject by hand still happen, and can be undone from Activity.</span>
+        <span id="safety-planned" class="mono"></span>
+      </div>
+      <button id="btn-go-live" class="brass small">Go live…</button>
+    </div>
+
+    <!-- ── Shows ── -->
+    <section id="view-shows" class="view active">
+      <header class="view-head">
+        <h2>Shows</h2>
+        <p class="lede">Every show Reelarr has handled, newest first.</p>
+      </header>
+      <div class="tabs" id="shows-tabs">
+        <button data-status="" class="on">All</button>
+        <button data-status="filed">Filed</button>
+        <button data-status="planned">Planned</button>
+        <button data-status="review">Needs review</button>
+        <button data-status="error">Errors</button>
+        <button data-status="rejected">Rejected</button>
+      </div>
+      <div id="shows-list" class="entries"></div>
+      <div id="shows-pager" class="pager"></div>
+    </section>
+
+    <!-- ── Artists ── -->
+    <section id="view-artists" class="view">
+      <header class="view-head">
+        <h2>Artists</h2>
+        <p class="lede">Artists Reelarr watches for new uploads. Anything new that you don't already have — in a format and source you'd accept — appears in the Queue, or is grabbed automatically if you choose.</p>
+      </header>
+      <div class="toolbar">
+        <input id="art-name" type="text" list="art-library" placeholder="Add an artist — e.g. Billy Strings" spellcheck="false">
+        <datalist id="art-library"></datalist>
+        <select id="art-lookback" title="How far back to look the first time">
+          <option value="0">new uploads only</option>
+          <option value="30" selected>+ the last 30 days</option>
+          <option value="365">+ the last year</option>
+          <option value="-1">+ everything on the archive</option>
+        </select>
+        <select id="art-action" title="What to do with what it finds">
+          <option value="wanted" selected>ask me (Queue)</option>
+          <option value="grab">grab automatically</option>
+        </select>
+        <button id="art-add" class="brass small">Monitor</button>
+        <button id="art-run" class="quiet small">Check all now</button>
+        <span id="art-msg" class="msg hint mono"></span>
+      </div>
+      <p class="hint" id="art-status"></p>
+      <div id="art-gates" class="panel warn-panel" hidden></div>
+      <table class="tbl" id="art-table">
+        <thead><tr><th>Artist</th><th>Looks for</th><th class="hide-sm">When found</th><th class="hide-sm">Checked</th><th>Wanted</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="art-empty" class="empty" hidden>No artists monitored yet. Add one above — your library's artists are suggested as you type.</p>
+    </section>
+
+    <!-- ── Discover ── -->
+    <section id="view-discover" class="view">
+      <header class="view-head">
+        <h2>Discover</h2>
+        <p class="lede">Search an indexer and send shows to your download client. When they finish, they come back through the watch folder to be tagged and filed.</p>
+      </header>
+      <div class="toolbar">
+        <select id="dis-indexer"></select>
+        <input id="dis-q" type="text" spellcheck="false"
+          placeholder="e.g. Billy Strings 2023   ·   or an archive.org link (a show, or a collection like GratefulDead)">
+        <button id="dis-search" class="brass small">Search</button>
+      </div>
+      <p id="dis-msg" class="msg hint mono"></p>
+      <table class="tbl" id="dis-table" hidden>
+        <thead><tr><th>Date</th><th>Show</th><th>Source</th><th class="hide-sm">Formats</th><th class="hide-sm">Downloads</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row-actions" id="dis-pager" hidden>
+        <button id="dis-prev" class="quiet small">← Previous</button>
+        <button id="dis-next" class="quiet small">Next →</button>
+        <span style="flex:1"></span>
+        <button id="dis-grab-all" class="quiet small">Grab everything on this page you don't have</button>
+      </div>
+    </section>
+
+    <!-- ── Queue ── -->
+    <section id="view-queue" class="view">
+      <header class="view-head">
+        <h2>Queue</h2>
+        <p class="lede">What's waiting on you, what's downloading, and what's on its way into the library.</p>
+      </header>
+      <div id="q-gates" class="panel warn-panel" hidden></div>
+      <h3 class="section-title">Wanted <span id="q-wanted-n" class="hint"></span></h3>
+      <table class="tbl" id="q-wanted"><thead><tr><th>Date</th><th>Show</th><th>Source</th><th class="hide-sm">Why</th><th></th></tr></thead><tbody></tbody></table>
+      <p id="q-wanted-empty" class="empty" hidden>Nothing waiting. Monitored artists' new uploads appear here.</p>
+      <h3 class="section-title">Downloading <span id="q-client" class="hint"></span></h3>
+      <div id="q-down-wrap" class="tbl-scroll">
+        <table class="tbl sortable" id="q-down">
+          <thead><tr>
+            <th data-sort="queue" class="num" title="Position in the download client's queue">#</th>
+            <th data-sort="name">Name</th>
+            <th data-sort="status" class="hide-sm">Status</th>
+            <th data-sort="progress">Progress</th>
+            <th data-sort="size" class="num hide-sm">Size</th>
+            <th data-sort="dl_speed" class="num hide-sm">Down</th>
+            <th data-sort="ul_speed" class="num hide-md">Up</th>
+            <th data-sort="eta" class="num">ETA</th>
+            <th data-sort="seeds" class="num hide-sm" title="Seeds / peers">S / P</th>
+            <th data-sort="ratio" class="num hide-md">Ratio</th>
+            <th data-sort="added" class="num hide-md">Added</th>
+          </tr></thead>
+          <tbody></tbody>
+          <tfoot><tr><td colspan="11" id="q-down-total" class="hint mono"></td></tr></tfoot>
+        </table>
+      </div>
+      <p id="q-down-empty" class="empty" hidden>Nothing downloading.</p>
+      <h3 class="section-title">Coming in</h3>
+      <div id="q-intake" class="entries mono"></div>
+      <h3 class="section-title">Recently grabbed</h3>
+      <div id="q-grabbed" class="entries mono"></div>
+      <h3 class="section-title">Passed over <span class="hint">— new uploads a monitored artist turned down, and why</span></h3>
+      <table class="tbl" id="q-skipped"><thead><tr><th>Date</th><th>Show</th><th>Source</th><th class="hide-sm">Why not</th><th></th></tr></thead><tbody></tbody></table>
+      <p id="q-skipped-empty" class="empty" hidden>Nothing passed over.</p>
+    </section>
+
+    <!-- ── Review ── -->
+    <section id="view-review" class="view">
+      <header class="view-head">
+        <h2>Review</h2>
+        <p class="lede">Shows Reelarr wasn't sure about. Correct anything that's wrong and file it — and the correction becomes a rule for future shows.</p>
+      </header>
+      <div id="dupes-head" class="panel" hidden>
+        <h3>Possible duplicates <span id="dupes-count" class="hint"></span></h3>
+        <p class="hint">Shows whose artist and date are already in the library. <strong>Replace the old copy</strong> files this one in its place (artwork carried over, old copy moved to trash — undoable from Activity). <strong>Reject all</strong> moves them to <code>_duplicates</code>.</p>
+        <div class="row-actions">
+          <button id="btn-toss-dupes" class="quiet">Reject all duplicates</button>
+          <span id="toss-result" class="hint mono"></span>
+        </div>
+      </div>
+      <div id="dupes-list" class="entries"></div>
+      <div id="review-list" class="entries"></div>
+      <p id="review-empty" class="empty" hidden>Nothing needs review.</p>
+      <div id="review-pager" class="pager"></div>
+    </section>
+
+    <!-- ── Settings ── -->
+    <section id="view-settings" class="view">
+      <header class="view-head">
+        <h2>Settings</h2>
+        <p class="lede">Changes take effect as soon as you save.</p>
+      </header>
+      <div class="row-actions" style="margin-top:0;margin-bottom:16px">
+        <a class="hint" href="/setup">Run the setup wizard again →</a>
+      </div>
+      <form id="settings-form"></form>
+      <div class="row-actions sticky-save">
+        <button id="btn-save" class="brass">Save settings</button>
+        <button id="btn-index" class="quiet">Re-read the library</button>
+        <span id="save-note" class="hint"></span>
+      </div>
+      <div class="panel" id="security-panel">
+        <h3>Security</h3>
+        <div class="kv"><span>Login</span><strong id="sec-mode">–</strong></div>
+        <div class="kv"><span>API key</span><strong class="mono" id="sec-key">hidden</strong></div>
+        <div class="row-actions">
+          <button id="sec-show-key" class="quiet small">Show API key</button>
+          <button id="sec-new-key" class="quiet small">Regenerate</button>
+          <span class="hint">For scripts and other apps: send it as an <code>X-Api-Key</code> header.</span>
+        </div>
+        <div id="sec-forms">
+          <div class="row-actions">
+            <input id="sec-cur" type="password" placeholder="current password" autocomplete="current-password">
+            <input id="sec-new" type="password" placeholder="new password (8+)" autocomplete="new-password">
+            <button id="sec-pw" class="brass small">Change password</button>
+          </div>
+          <div class="row-actions">
+            <button id="sec-off" class="quiet small">Turn login off…</button>
+            <span class="hint">Only if something in front of Reelarr (SSO, an authenticating proxy) already checks who people are.</span>
+          </div>
+        </div>
+        <div id="sec-none" hidden>
+          <div class="row-actions">
+            <input id="sec-user" placeholder="username" autocomplete="username">
+            <input id="sec-pass" type="password" placeholder="password (8+)" autocomplete="new-password">
+            <button id="sec-on" class="brass small">Turn login on</button>
+          </div>
+        </div>
+        <p id="sec-msg" class="msg hint mono"></p>
+      </div>
+      <div class="panel">
+        <h3>Download client <span id="tor-state" class="hint"></span></h3>
+        <p class="hint">Drop a <code>.torrent</code> (or a <code>.magnet</code> text file) into the .torrent folder and Reelarr hands it to your client with the label set. Handled files move to <code>_added/</code>; anything the client refused goes to <code>_failed/</code>. With <strong>import completed</strong> on, finished downloads are copied into the watch folder and filed — the torrent keeps seeding. If the client and Reelarr see the download folder under different names, set a <strong>path map</strong> (the setup wizard can work it out for you).</p>
+        <div class="kv"><span>Last result</span><strong id="tor-last">—</strong></div>
+        <div class="row-actions">
+          <button id="tor-test" class="quiet">Test the connection</button>
+          <button id="tor-scan" class="brass">Check the .torrent folder now</button>
+          <button id="tor-import" class="quiet">Collect finished downloads</button>
+          <span id="tor-msg" class="msg hint mono"></span>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Learned corrections <span id="corr-count" class="hint"></span></h3>
+        <p class="hint">Standing artist and venue fixes learned from your edits in Review. Each one rewrites <em>every</em> matching show, so remove any that look wrong.</p>
+        <div id="corr-list" class="entries mono"></div>
+      </div>
+    </section>
+
+    <!-- ── Maintenance ── -->
+    <section id="view-maintenance" class="view">
+      <header class="view-head">
+        <h2>Maintenance</h2>
+        <p class="lede">Library-wide tools: learn from changes you've made by hand, find shows that look wrong, and re-check tags against setlist.fm.</p>
+      </header>
+      <div class="panel">
+        <h3>Learn from your corrections</h3>
+        <p class="hint">Compares every filed show's record with what's on disk now. Moved a show to a different artist, or retagged its venue? Those become standing corrections for future shows.</p>
+        <div class="row-actions">
+          <button id="btn-learn" class="brass">Learn from corrections</button>
+          <span id="learn-result" class="hint mono"></span>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Export an audit report</h3>
+        <p class="hint">Everything in one JSON file — original folder names, Reelarr's decisions, confidence, provenance, current tags and flagged problems. Useful for improving the parsing rules, or for a bug report.</p>
+        <div class="row-actions">
+          <button id="btn-export" class="brass">Export report</button>
+          <a id="export-link" class="hint" hidden></a>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Find problems <span id="suspect-count" class="hint"></span></h3>
+        <p class="hint">Filed shows that look wrong: junk words, missing source brackets, doubled locations, near-duplicate artist folders.</p>
+        <div class="row-actions">
+          <button id="btn-suspects" class="quiet">Find problems</button>
+          <button id="btn-return" class="brass">Send them back to the watch folder</button>
+          <span id="return-result" class="hint mono"></span>
+        </div>
+        <div id="suspect-list" class="entries mono"></div>
+      </div>
+      <div class="panel">
+        <h3>Re-check the library against setlist.fm <span id="backtag-count" class="hint"></span></h3>
+        <p class="hint">Checks each show by artist and date, normalises inconsistent venue names and replaces junk track titles (timestamps, file names, placeholders) with the real setlist. Confident fixes are applied in place; anything where the venue doesn't match goes to Review. <strong>Preview first</strong> — it shows exactly what would change. Needs a setlist.fm key (Settings).</p>
+        <div class="row-actions">
+          <button id="btn-backtag-preview" class="quiet">Preview changes</button>
+          <button id="btn-backtag-run" class="brass">Apply fixes</button>
+          <span id="backtag-result" class="hint mono"></span>
+        </div>
+        <div id="backtag-progress" class="hint mono" hidden></div>
+        <div id="backtag-list" class="entries mono"></div>
+      </div>
+    </section>
+
+    <!-- ── Activity ── -->
+    <section id="view-activity" class="view">
+      <header class="view-head">
+        <h2>Activity</h2>
+        <p class="lede">Every change Reelarr made on disk — undoable — and everything it did, newest first.</p>
+      </header>
+      <div class="panel">
+        <h3>Recent changes</h3>
+        <p class="hint">Grouped by what caused them. Undo puts files back where they were and restores their old tags. Removed files stay in a <code>.reelarr-trash</code> folder on the same drive until the retention period in Settings → Safety runs out.</p>
+        <div id="actions-list" class="entries mono"></div>
+      </div>
+      <h3 class="section-title">Events</h3>
+      <div id="activity-list" class="entries mono"></div>
+      <div id="activity-pager" class="pager"></div>
+    </section>
+
+    <!-- ── System ── -->
+    <section id="view-system" class="view">
+      <header class="view-head">
+        <h2>System</h2>
+        <p class="lede">Health, version and backups.</p>
+      </header>
+      <div id="sys-health" class="health"></div>
+      <h3 class="section-title">About</h3>
+      <div class="panel" id="sys-about"></div>
+      <h3 class="section-title">Backups</h3>
+      <div class="panel">
+        <p class="hint">A backup holds your databases (shows, learned corrections, artists, the undo journal) and settings. Reelarr also makes one automatically before every upgrade. Settings include passwords — keep backups private. To restore: stop Reelarr, unzip a backup into the config folder, start it again.</p>
+        <div class="row-actions"><button id="sys-backup" class="brass small">Make a backup now</button><span id="sys-backup-msg" class="hint mono"></span></div>
+        <div id="sys-backups" class="entries mono"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+<script src="/static/app.js?v=14"></script>
+</body>
+</html>

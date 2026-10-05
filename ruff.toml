@@ -1,0 +1,13 @@
+# Lint config for Reelarr. `ruff check .` must pass in CI.
+target-version = "py310"
+line-length = 120
+extend-exclude = ["tools"]
+
+[lint]
+# pyflakes (F), pycodestyle errors (E4/E7/E9), bugbear's sharpest checks
+select = ["E4", "E7", "E9", "F", "B006", "B008", "B017", "B023", "B904"]
+ignore = ["E402", "E731", "E741", "E702"]   # style only: short names, one-liners
+
+[lint.per-file-ignores]
+"tests/*" = ["B017"]
+"app/main.py" = ["B008"]    # FastAPI's Body(...) defaults are the documented idiom

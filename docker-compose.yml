@@ -1,0 +1,33 @@
+# Reelarr — runs as-is, no .env needed:
+#     docker compose up -d
+# (pulls the published image; `docker compose up -d --build` builds from this folder instead)
+# then open http://<this-machine>:8189 and the setup wizard does the rest
+# (login, folders, download client, metadata, import style, time zone).
+#
+# The ONE thing a wizard can't do is reach folders Docker hasn't mounted, so
+# give Reelarr the parent folder that holds your downloads AND your music.
+# The wizard then lets you pick the exact folders inside it.
+#
+# Everything below can be overridden in a .env file next to this one (see
+# .env.example), but nothing has to be.
+services:
+  reelarr:
+    image: ghcr.io/OWNER/reelarr:${REELARR_TAG:-latest}
+    build: .                      # only used by --build, or if the image can't be pulled
+    container_name: reelarr
+    ports:
+      - "${REELARR_PORT:-8189}:8189"
+    environment:
+      - PUID=${PUID:-1000}        # unRAID: 99
+      - PGID=${PGID:-1000}        # unRAID: 100
+      - UMASK=${UMASK:-022}       # unRAID: 000 if you edit files over SMB
+      - TZ=${TZ:-America/New_York}
+      - REELARR_MEDIA_PATH=${REELARR_MEDIA_PATH:-/media}   # tells the wizard where your media is
+    volumes:
+      - ${REELARR_CONFIG_DIR:-./config}:/config
+      # Your music + downloads. On unRAID, mapping /mnt/user to the SAME path
+      # inside the container means the paths you see in the wizard are the
+      # paths you know — and they match other containers that do the same:
+      #   REELARR_MEDIA_DIR=/mnt/user   and   REELARR_MEDIA_PATH=/mnt/user
+      - ${REELARR_MEDIA_DIR:-./media}:${REELARR_MEDIA_PATH:-/media}
+    restart: unless-stopped

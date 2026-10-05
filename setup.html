@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reelarr — setup</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/style.css?v=14">
+</head>
+<body class="wizard-page">
+<main class="wizard">
+  <header class="wiz-head">
+    <div class="auth-brand"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="27" fill="none" stroke="var(--amber)" stroke-width="5"/><circle cx="32" cy="32" r="7" fill="var(--amber)"/><g stroke="var(--amber)" stroke-width="4.5" stroke-linecap="round" fill="none"><path d="M32 13 A19 19 0 0 1 48 23"/><path d="M48 41 A19 19 0 0 1 32 51"/><path d="M16 41 A19 19 0 0 1 16 23"/></g></svg><h1>Reelarr setup</h1></div>
+    <ol class="wiz-steps" id="wiz-steps"></ol>
+  </header>
+
+  <!-- 0 welcome -->
+  <section class="wiz-step" data-step="welcome">
+    <h2>Welcome</h2>
+    <p>Reelarr watches a folder for live recordings, works out who played where and when, tags them and files them into your library. Anything it isn't sure about waits for you under Review.</p>
+    <div class="panel warn-panel">
+      <strong>Try it on a copy first.</strong>
+      <p class="hint">Reelarr moves and retags real files. It starts in <em>dry run</em> — it plans every change and makes none until you say go — and everything it does can be undone, but pointing it at a test copy of a few shows first is still the best start.</p>
+    </div>
+    <div id="env-info" class="hint mono"></div>
+  </section>
+
+  <!-- 1 folders -->
+  <section class="wiz-step" data-step="folders" hidden>
+    <h2>Folders</h2>
+    <p class="hint" id="folders-intro"></p>
+    <div id="mount-help" class="panel warn-panel" hidden>
+      <strong>Reelarr can't see your music yet.</strong>
+      <p class="hint">A container only sees the folders Docker gives it, and right now that's an empty one. This is set in Docker, not here — give Reelarr the folder that holds your music <em>and</em> your downloads, then recreate the container and press <strong>Check again</strong>.</p>
+      <div class="tabs" id="mh-tabs">
+        <button data-mh="unraid" class="on">unRAID</button>
+        <button data-mh="compose">docker compose</button>
+        <button data-mh="run">docker run</button>
+        <button data-mh="nas">Synology / other NAS</button>
+      </div>
+      <div data-mh-body="unraid">
+        <p class="hint">In the folder with <code>docker-compose.yml</code>, create a file named <code>.env</code> containing:</p>
+        <pre class="code">REELARR_MEDIA_DIR=/mnt/user
+REELARR_MEDIA_PATH=/mnt/user
+PUID=99
+PGID=100
+UMASK=000</pre>
+        <p class="hint">then run <code>docker compose up -d</code>. If you installed from Community Applications, edit the container and set <strong>Shares</strong> to <code>/mnt/user</code> instead.</p>
+      </div>
+      <div data-mh-body="compose" hidden>
+        <p class="hint">Create <code>.env</code> next to <code>docker-compose.yml</code>, with the folder that holds your music and downloads:</p>
+        <pre class="code">REELARR_MEDIA_DIR=/path/to/your/media
+REELARR_MEDIA_PATH=/media</pre>
+        <p class="hint">then run <code>docker compose up -d</code>. Inside Reelarr it appears as <code>/media</code>.</p>
+      </div>
+      <div data-mh-body="run" hidden>
+        <p class="hint">Add a volume for your media folder when you create the container:</p>
+        <pre class="code">docker run -d --name reelarr -p 8189:8189 \
+  -v /path/to/config:/config \
+  -v /path/to/your/media:/media \
+  -e PUID=1000 -e PGID=1000 reelarr:local</pre>
+      </div>
+      <div data-mh-body="nas" hidden>
+        <p class="hint">In your NAS's container settings, add a folder mapping: your shared folder (e.g. <code>/volume1/music</code>) → <code>/media</code> inside the container. Set <code>PUID</code>/<code>PGID</code> to the user that owns your music (Synology: run <code>id</code> over SSH to find them).</p>
+      </div>
+      <div class="row-actions"><button id="mh-check" class="brass small">Check again</button><span id="mh-msg" class="hint mono"></span></div>
+      <p class="hint">Starting a brand-new library with nothing in it yet? Ignore this and create your folders below.</p>
+    </div>
+    <div class="field">
+      <label>Watch folder <span class="hint">— new shows land here (one folder per show)</span></label>
+      <div class="pick"><input id="f-watch" class="mono" spellcheck="false"><button class="quiet small" data-browse="f-watch">Browse…</button></div>
+    </div>
+    <div class="field">
+      <label>Library folder <span class="hint">— where filed shows live, one folder per artist</span></label>
+      <div class="pick"><input id="f-library" class="mono" spellcheck="false"><button class="quiet small" data-browse="f-library">Browse…</button></div>
+    </div>
+    <div id="folders-result"></div>
+  </section>
+
+  <!-- 2 download client -->
+  <section class="wiz-step" data-step="client" hidden>
+    <h2>Download client <span class="hint">(optional)</span></h2>
+    <p class="hint">If you use Deluge, qBittorrent or Transmission, Reelarr can hand it torrents and collect what finishes. Skip this if you don't — you can set it up later in Settings.</p>
+    <label class="check"><input type="checkbox" id="c-enabled"> Use a download client</label>
+    <div id="client-fields" hidden>
+      <div class="grid2">
+        <div class="field"><label>Client</label>
+          <select id="c-client"><option value="qbittorrent">qBittorrent</option><option value="deluge">Deluge</option><option value="transmission">Transmission</option></select></div>
+        <div class="field"><label>Web address <span class="hint">— as you'd open it in a browser</span></label><input id="c-url" class="mono" placeholder="http://192.168.1.10:8080"></div>
+        <div class="field"><label>Username <span class="hint">(not for Deluge)</span></label><input id="c-username" autocomplete="off"></div>
+        <div class="field"><label>Password <span class="hint">— the web UI password</span></label><input id="c-password" type="password" autocomplete="new-password"></div>
+        <div class="field"><label>Label / category</label><input id="c-label" placeholder="bootlegs"></div>
+        <div class="field"><label>When a download finishes</label>
+          <select id="c-import"><option value="copy">copy it in (keeps seeding — recommended)</option><option value="move">move it in (stops seeding)</option><option value="off">leave it — I'll bring shows in myself</option></select></div>
+      </div>
+      <div class="row-actions"><button id="c-test" class="brass small">Test &amp; check paths</button><span id="c-msg" class="msg hint mono"></span></div>
+      <div id="c-paths"></div>
+      <div class="field">
+        <label>Folder for <code>.torrent</code> files <span class="hint">(optional) — drop a .torrent here and Reelarr hands it to the client</span></label>
+        <div class="pick"><input id="c-torrent-dir" class="mono" spellcheck="false"><button class="quiet small" data-browse="c-torrent-dir">Browse…</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 metadata -->
+  <section class="wiz-step" data-step="metadata" hidden>
+    <h2>Metadata <span class="hint">(optional, recommended)</span></h2>
+    <p>A free <a href="https://api.setlist.fm/" target="_blank" rel="noopener">setlist.fm API key</a> lets Reelarr confirm venues and fill in real song titles.</p>
+    <p class="hint">Without it, Reelarr still files shows from their tags, folder names and info files — but more of them will need a look in Review, and junk track titles won't get fixed.</p>
+    <div class="field"><label>setlist.fm API key</label><input id="m-key" class="mono" autocomplete="off" spellcheck="false"></div>
+    <label class="check"><input type="checkbox" id="m-ia" checked> Also look up etree-style folder names on archive.org</label>
+  </section>
+
+  <!-- 4 import style -->
+  <section class="wiz-step" data-step="import" hidden>
+    <h2>How should it start?</h2>
+    <label class="choice"><input type="radio" name="i-mode" value="dry" checked>
+      <span><strong>Dry run</strong> (recommended) — identify shows and show me the plan for each, but don't touch any files. Go live from the banner whenever you're happy.</span></label>
+    <label class="choice"><input type="radio" name="i-mode" value="live">
+      <span><strong>Live</strong> — start filing straight away. Removed files still go to trash and everything can be undone.</span></label>
+    <div id="i-live-confirm" class="field" hidden><label>Type <strong>GO LIVE</strong> to confirm</label><input id="i-confirm"></div>
+    <h3>Converting WAV and SHN to FLAC</h3>
+    <label class="choice"><input type="radio" name="i-conv" value="preserve" checked>
+      <span><strong>Keep the original quality</strong> — same bit depth and sample rate (lossless)</span></label>
+    <label class="choice"><input type="radio" name="i-conv" value="cd">
+      <span><strong>CD quality</strong> — 16-bit / 44.1 kHz, smaller files</span></label>
+    <label class="check"><input type="checkbox" id="i-keep"> Keep the WAV/SHN originals after converting</label>
+    <h3>Time zone</h3>
+    <p class="hint">Used for scheduled jobs (nightly library index, trash clean-up).</p>
+    <select id="i-tz" class="mono"></select>
+  </section>
+
+  <!-- 5 done -->
+  <section class="wiz-step" data-step="done" hidden>
+    <h2>Ready</h2>
+    <div id="summary" class="mono summary"></div>
+    <label class="check"><input type="checkbox" id="d-index" checked> Read my library now so Reelarr learns its artists, venues and songs <span class="hint">(reads one file per show — minutes, not hours)</span></label>
+    <label class="check"><input type="checkbox" id="d-scan" checked> Look at the watch folder now</label>
+    <p class="hint">Everything here can be changed later in Settings.</p>
+  </section>
+
+  <footer class="wiz-foot">
+    <button id="w-back" class="quiet">Back</button>
+    <span id="w-msg" class="msg"></span>
+    <button id="w-skip" class="quiet" hidden>Skip</button>
+    <button id="w-next" class="brass">Next</button>
+  </footer>
+</main>
+
+<div id="browser" class="modal" hidden>
+  <div class="modal-card">
+    <div class="row-actions"><strong id="b-path" class="mono">Choose a folder</strong></div>
+    <div id="b-list" class="b-list"></div>
+    <div class="row-actions">
+      <button id="b-up" class="quiet small">↑ Up</button>
+      <button id="b-new" class="quiet small">New folder…</button>
+      <span style="flex:1"></span>
+      <button id="b-cancel" class="quiet small">Cancel</button>
+      <button id="b-choose" class="brass small">Use this folder</button>
+    </div>
+  </div>
+</div>
+<script src="/static/setup.js?v=14"></script>
+</body>
+</html>

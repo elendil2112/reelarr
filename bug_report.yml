@@ -1,0 +1,42 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please **don't paste passwords, API keys or tokens** — Activity and System hide them, but check before you post.
+  - type: input
+    id: version
+    attributes:
+      label: Reelarr version
+      description: Shown at the bottom of the sidebar, and on the System page.
+      placeholder: "0.1.0"
+    validations: { required: true }
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run it?
+      options: [Docker Compose, unRAID template, docker run, Bare metal (Python), Other]
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Drop a folder named … into the watch folder\n2. …"
+  - type: textarea
+    id: folder
+    attributes:
+      label: For identification problems — the folder name, and the album tag or info file
+      description: The exact folder name and a few lines of the .txt usually explain a wrong match.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Activity entries or `docker logs reelarr` output
+      render: text

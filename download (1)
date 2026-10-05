@@ -1,0 +1,25 @@
+# Your private settings and credentials — never share these
+.env
+config/settings.json
+config/*.db
+config/*.db-wal
+config/*.db-shm
+config/library_index.db
+config/*/
+config/exports/
+config/logs/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Reelarr state
+config/backups/
+config/trash/
+config/*.tmp
+.pytest_cache/
+.ruff_cache/

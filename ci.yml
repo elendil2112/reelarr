@@ -1,0 +1,108 @@
+# Lint and test every push and pull request; build the image; publish it to
+# GitHub Container Registry as ghcr.io/<owner>/reelarr.
+#
+#   push a tag v0.1.0   → :0.1.0, :0.1, :latest
+#   push to main        → :edge
+#   pull requests       → lint, test and build only — nothing published
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ruff
+      - run: ruff check .
+      - name: JavaScript syntax
+        run: for f in app/static/*.js; do node --check "$f"; done
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg p7zip-full
+      - run: pip install -r requirements.txt pytest httpx
+      - run: python -m pytest tests -q
+
+  image:
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Prove the image starts and answers before anything is published.
+      - name: Build for a smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: reelarr:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke -p 8189:8189 reelarr:smoke
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8189/api/health; then echo; break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8189/api/health | grep -q '"ok":true'
+          curl -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8189/login | grep -q 200
+          test "$(docker exec smoke stat -c %u /proc/1)" != "0"   # the app itself isn't root
+      - name: Container logs (on failure)
+        if: failure()
+        run: docker logs smoke 2>&1 | tail -100
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/reelarr
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+      - name: Build and publish (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

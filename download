@@ -1,0 +1,15 @@
+# Never send local state or secrets into an image build
+.env
+config/
+media/
+**/__pycache__
+**/*.pyc
+.pytest_cache/
+.git/
+.github/
+tests/
+tools/
+docs/
+assets/*.xcf
+*.zip
+.ruff_cache/

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reelarr — sign in</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/style.css?v=14">
+</head>
+<body class="auth-page">
+<main class="auth-card">
+  <div class="auth-brand"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="27" fill="none" stroke="var(--amber)" stroke-width="5"/><circle cx="32" cy="32" r="7" fill="var(--amber)"/><g stroke="var(--amber)" stroke-width="4.5" stroke-linecap="round" fill="none"><path d="M32 13 A19 19 0 0 1 48 23"/><path d="M48 41 A19 19 0 0 1 32 51"/><path d="M16 41 A19 19 0 0 1 16 23"/></g></svg><div><h1>Reelarr</h1><p class="dim mono" id="ver"></p></div></div>
+
+  <!-- first run -->
+  <form id="setup" hidden autocomplete="on">
+    <h2>Create your login</h2>
+    <p class="hint">This is the only account. Anyone who can reach this page before you finish could create it instead — so do this now.</p>
+    <label>Username <input name="username" autocomplete="username" required></label>
+    <label>Password <input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+    <label>Password again <input name="password2" type="password" autocomplete="new-password" minlength="8" required></label>
+    <button class="brass" type="submit">Create login</button>
+    <p class="msg" id="setup-msg"></p>
+    <details class="hint">
+      <summary>I don't want a login (I use my own SSO / reverse-proxy auth)</summary>
+      <p>With no login, anyone who can reach Reelarr's port has full control of it, including moving and retagging your files. Only choose this if something in front of Reelarr already checks who people are.</p>
+      <label>Type <strong>NO LOGIN</strong> to confirm <input id="nologin-confirm"></label>
+      <button class="quiet" type="button" id="nologin">Run without a login</button>
+    </details>
+  </form>
+
+  <!-- normal sign in -->
+  <form id="login" hidden autocomplete="on">
+    <h2>Sign in</h2>
+    <label>Username <input name="username" autocomplete="username" required></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="brass" type="submit">Sign in</button>
+    <p class="msg" id="login-msg"></p>
+  </form>
+</main>
+<script src="/static/login.js?v=14"></script>
+</body>
+</html>
