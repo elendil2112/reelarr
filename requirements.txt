@@ -1,4 +1,4 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
 apscheduler>=3.10,<4
-mutagen>=1.47
+mutagen>=1.48.1
