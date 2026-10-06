@@ -4,6 +4,17 @@ All notable changes to Reelarr. Versions follow [Semantic Versioning](https://se
 until 1.0, minor versions may change behaviour, and every upgrade backs up your
 databases first.
 
+## Unreleased
+
+### Queue
+- Every Queue table — Wanted, Downloading, Coming in, Recently grabbed, Passed
+  over — now sorts by any column: click a heading, click again to reverse.
+  Your choice is remembered per table.
+- A search box filters all five tables at once. Every word has to match
+  somewhere in the row (artist, show, date, source, status, reason…); Esc clears it.
+- Recently grabbed shows each show's status, progress and ETA from the
+  download client, and keeps up to 100 grabs instead of 15.
+
 ## 0.1.0 — first public release
 
 ### Identify, tag and file

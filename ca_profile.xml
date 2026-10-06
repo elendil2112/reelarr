@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>
+**Reelarr** is an *arr for live concert recordings: it identifies, tags and files tapes, soundboards and Live Music Archive downloads into a clean library, monitors artists for new uploads, and holds anything uncertain for review. Open source under GPL-3.0.
+
+Questions, bugs and feature requests: [GitHub issues](https://github.com/elendil2112/reelarr/issues).
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/elendil2112/reelarr/main/assets/icon-256.png</Icon>
+  <WebPage>https://github.com/elendil2112/reelarr</WebPage>
+</CommunityApplications>

@@ -13,3 +13,5 @@ docs/
 assets/*.xcf
 *.zip
 .ruff_cache/
+templates/
+ca_profile.xml
