@@ -1,5 +1,6 @@
 """Reelarr — FastAPI backend + GUI."""
 import json
+import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -455,7 +456,7 @@ def api_release_ignore(rid: int):
 def api_queue():
     cfg = config.load()
     out = {"wanted": monitor.list_releases("wanted", 100),
-           "grabbed": monitor.list_releases("grabbed", 15),
+           "grabbed": monitor.list_releases("grabbed", 100),
            "skipped": monitor.list_releases("skipped", 50),
            "dry_run": fileops.dry_run_enabled(),
            "torrent_folder": bool((cfg.get("torrents", {}) or {}).get("watch_dir")),
@@ -473,18 +474,43 @@ def api_queue():
             out["label"] = t.get("label", "")
             done = torrents._load_imported()
             importing = bool(t.get("import_completed"))
+            seen = []
             for x in c.get_torrents(t.get("label", "")):
-                if x.finished and (x.id in done or not importing):
-                    continue                    # handed over to the library: not in the queue
                 d = x.to_dict()
                 d.pop("save_path", None); d.pop("content_path", None)
+                handed_over = x.finished and (x.id in done or not importing)
                 if x.finished:
-                    d["status"] = "import pending"
+                    d["status"] = "imported" if handed_over else "import pending"
                     d["eta"] = None
-                out["downloading"].append(d)
+                seen.append(d)
+                if not handed_over:             # handed over to the library: not in the queue
+                    out["downloading"].append(d)
+            _attach_client(out["grabbed"], seen)
         except Exception as e:
             out["client_error"] = str(e)
     return out
+
+
+def _torrent_key(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _attach_client(grabbed: list, seen: list):
+    """Give each grabbed release its torrent's status, progress and ETA, so
+    Recently grabbed shows how far along it is. An archive.org torrent is
+    named after the item, so the release id is the match."""
+    by_name = {}
+    for d in seen:
+        by_name.setdefault(_torrent_key(d.get("name")), d)
+    for g in grabbed:
+        keys = [_torrent_key(g.get("release_id")), _torrent_key((g.get("data") or {}).get("title"))]
+        d = next((by_name[k] for k in keys if k and k in by_name), None)
+        if d is None:
+            rid = keys[0]
+            d = next((v for k, v in by_name.items() if rid and len(rid) >= 8 and k.startswith(rid)), None)
+        g["client"] = None if d is None else {
+            "status": d.get("status") or d.get("state") or "", "progress": d.get("progress"),
+            "eta": d.get("eta"), "dl_speed": d.get("dl_speed"), "name": d.get("name")}
 
 
 # ── Discover (indexers) ──────────────────────────────────────────────────────

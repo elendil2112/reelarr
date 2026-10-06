@@ -1,6 +1,4 @@
 <?xml version="1.0"?>
-<!-- unRAID Community Applications template.
-     Replace elendil2112 with the account that publishes the image. -->
 <Container version="2">
   <Name>Reelarr</Name>
   <Repository>ghcr.io/elendil2112/reelarr:latest</Repository>
@@ -10,11 +8,17 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/elendil2112/reelarr/issues</Support>
   <Project>https://github.com/elendil2112/reelarr</Project>
-  <Overview>Reelarr identifies, tags and files live concert recordings — tapes, soundboards, Live Music Archive downloads — into a clean library. Anything it isn't sure about waits in a review queue. Starts in dry run; nothing is deleted; every change can be undone. After installing, open the web UI: a setup wizard creates your login and picks your folders.</Overview>
-  <Category>MediaApp:Music Downloaders: Tools:</Category>
+  <Overview>An *arr for live recordings. Reelarr identifies, tags and files live concert recordings — tapes, soundboards, Live Music Archive downloads — into a clean library. Anything it isn't sure about waits in a review queue. Starts in dry run; nothing is deleted; every change can be undone. After installing, open the web UI: a setup wizard creates your login and picks your folders.</Overview>
+  <Category>Downloaders: MediaApp:Music Tools:Utilities</Category>
   <WebUI>http://[IP]:[PORT:8189]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/elendil2112/reelarr/main/unraid/reelarr.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/elendil2112/reelarr/main/templates/reelarr.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/elendil2112/reelarr/main/assets/icon-256.png</Icon>
+  <ReadMe>https://github.com/elendil2112/reelarr#readme</ReadMe>
+  <Changes>https://github.com/elendil2112/reelarr/blob/main/CHANGELOG.md</Changes>
+  <Screenshot>https://raw.githubusercontent.com/elendil2112/reelarr/main/docs/screenshots/shows.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/elendil2112/reelarr/main/docs/screenshots/queue.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/elendil2112/reelarr/main/docs/screenshots/artists.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/elendil2112/reelarr/main/docs/screenshots/review.png</Screenshot>
   <Config Name="Web UI port" Target="8189" Default="8189" Mode="tcp" Description="Port for the web UI." Type="Port" Display="always" Required="true" Mask="false">8189</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/reelarr" Mode="rw" Description="Settings, databases and backups." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/reelarr</Config>
   <Config Name="Shares" Target="/mnt/user" Default="/mnt/user" Mode="rw" Description="Mounted at the same path inside, so the setup wizard shows the paths you know and they match your other containers. Narrow it (e.g. /mnt/user/data) if you prefer." Type="Path" Display="always" Required="true" Mask="false">/mnt/user</Config>

@@ -139,37 +139,33 @@
         <p class="lede">What's waiting on you, what's downloading, and what's on its way into the library.</p>
       </header>
       <div id="q-gates" class="panel warn-panel" hidden></div>
-      <h3 class="section-title">Wanted <span id="q-wanted-n" class="hint"></span></h3>
-      <table class="tbl" id="q-wanted"><thead><tr><th>Date</th><th>Show</th><th>Source</th><th class="hide-sm">Why</th><th></th></tr></thead><tbody></tbody></table>
-      <p id="q-wanted-empty" class="empty" hidden>Nothing waiting. Monitored artists' new uploads appear here.</p>
-      <h3 class="section-title">Downloading <span id="q-client" class="hint"></span></h3>
-      <div id="q-down-wrap" class="tbl-scroll">
-        <table class="tbl sortable" id="q-down">
-          <thead><tr>
-            <th data-sort="queue" class="num" title="Position in the download client's queue">#</th>
-            <th data-sort="name">Name</th>
-            <th data-sort="status" class="hide-sm">Status</th>
-            <th data-sort="progress">Progress</th>
-            <th data-sort="size" class="num hide-sm">Size</th>
-            <th data-sort="dl_speed" class="num hide-sm">Down</th>
-            <th data-sort="ul_speed" class="num hide-md">Up</th>
-            <th data-sort="eta" class="num">ETA</th>
-            <th data-sort="seeds" class="num hide-sm" title="Seeds / peers">S / P</th>
-            <th data-sort="ratio" class="num hide-md">Ratio</th>
-            <th data-sort="added" class="num hide-md">Added</th>
-          </tr></thead>
-          <tbody></tbody>
-          <tfoot><tr><td colspan="11" id="q-down-total" class="hint mono"></td></tr></tfoot>
-        </table>
+      <div class="toolbar q-toolbar">
+        <input id="q-search" type="search" spellcheck="false" autocomplete="off"
+               placeholder="Search the queue — artist, show, date, source, status…" aria-label="Search the queue">
+        <span id="q-search-n" class="hint mono"></span>
       </div>
-      <p id="q-down-empty" class="empty" hidden>Nothing downloading.</p>
-      <h3 class="section-title">Coming in</h3>
-      <div id="q-intake" class="entries mono"></div>
-      <h3 class="section-title">Recently grabbed</h3>
-      <div id="q-grabbed" class="entries mono"></div>
-      <h3 class="section-title">Passed over <span class="hint">— new uploads a monitored artist turned down, and why</span></h3>
-      <table class="tbl" id="q-skipped"><thead><tr><th>Date</th><th>Show</th><th>Source</th><th class="hide-sm">Why not</th><th></th></tr></thead><tbody></tbody></table>
-      <p id="q-skipped-empty" class="empty" hidden>Nothing passed over.</p>
+      <p class="hint q-help">Click any column heading to sort by it; click again to reverse. Every word you type has to match somewhere in the row.</p>
+
+      <h3 class="section-title">Wanted <span id="q-wanted-n" class="hint"></span></h3>
+      <div class="tbl-scroll"><table class="tbl sortable" id="q-wanted"><thead></thead><tbody></tbody></table></div>
+      <p id="q-wanted-empty" class="empty" hidden></p>
+
+      <h3 class="section-title">Downloading <span id="q-down-n" class="hint"></span> <span id="q-client" class="hint"></span></h3>
+      <div class="tbl-scroll"><table class="tbl sortable" id="q-down"><thead></thead><tbody></tbody>
+        <tfoot><tr><td colspan="11" id="q-down-total" class="hint mono"></td></tr></tfoot></table></div>
+      <p id="q-down-empty" class="empty" hidden></p>
+
+      <h3 class="section-title">Coming in <span id="q-intake-n" class="hint"></span></h3>
+      <div class="tbl-scroll"><table class="tbl sortable" id="q-intake"><thead></thead><tbody></tbody></table></div>
+      <p id="q-intake-empty" class="empty" hidden></p>
+
+      <h3 class="section-title">Recently grabbed <span id="q-grabbed-n" class="hint"></span></h3>
+      <div class="tbl-scroll"><table class="tbl sortable" id="q-grabbed"><thead></thead><tbody></tbody></table></div>
+      <p id="q-grabbed-empty" class="empty" hidden></p>
+
+      <h3 class="section-title">Passed over <span id="q-skipped-n" class="hint"></span> <span class="hint">— new uploads a monitored artist turned down, and why</span></h3>
+      <div class="tbl-scroll"><table class="tbl sortable" id="q-skipped"><thead></thead><tbody></tbody></table></div>
+      <p id="q-skipped-empty" class="empty" hidden></p>
     </section>
 
     <!-- ── Review ── -->

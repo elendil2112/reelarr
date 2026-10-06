@@ -1060,12 +1060,11 @@ $("#art-run").addEventListener("click", async () => {
 });
 
 /* ── Queue ── */
-// Downloading: sortable like Sonarr/Radarr. Click a column to sort; again to reverse.
-let queueRows = [];
-const QSORT_KEY = "reelarr.queue.sort";
-let qSort = (() => { try { return JSON.parse(localStorage.getItem(QSORT_KEY)) || null; } catch { return null; } })()
-  || { key: "queue", dir: 1 };
-const STATUS_ORDER = ["downloading", "metadata", "checking", "stalled", "queued", "paused", "error", "import pending", "seeding"];
+// Every table here sorts by any column (click; click again to reverse) and the
+// search box above them filters all five at once. Sort choices are remembered.
+const STATUS_ORDER = ["downloading", "metadata", "checking", "stalled", "queued", "paused", "error",
+                      "import pending", "seeding", "imported"];
+const SRC_RANK = ["SBD", "MTX", "MATRIX", "PRE-FM", "FM", "AUD"];
 function fmtBytes(n) {
   if (n == null) return "—";
   const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
@@ -1078,105 +1077,213 @@ function fmtEta(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${sec}s`;
 }
-function sortValue(row, key) {
-  if (key === "status") { const i = STATUS_ORDER.indexOf(row.status); return i < 0 ? 99 : i; }
-  if (key === "name") return (row.name || "").toLowerCase();
-  if (key === "seeds") return row.seeds == null ? null : row.seeds * 10000 + (row.peers || 0);
-  return row[key];
+const statusRank = s => { const i = STATUS_ORDER.indexOf(s); return i < 0 ? 99 : i; };
+const srcRank = s => { if (!s) return null; const i = SRC_RANK.findIndex(x => s.toUpperCase().startsWith(x)); return i < 0 ? 50 : i; };
+const lc = s => (s || "").toLowerCase();
+const progressCell = p => p == null ? '<span class="hint">—</span>'
+  : `<span style="white-space:nowrap"><span class="hide-sm">${vu(p)}</span> <span class="hint mono">${(p * 100).toFixed(p < 1 ? 1 : 0)}%</span></span>`;
+const stStamp = s => s ? `<span class="stamp st-${esc(s.replace(/\s+/g, "-"))}">${esc(s)}</span>` : '<span class="hint">—</span>';
+
+let qQuery = "";
+const qTables = {};
+
+/* A sortable, searchable table.
+   cols: [{key, label, cls, title, sort(row)→value, cell(row)→html, desc}]  (desc = first click sorts high→low)
+   hay(row) → the text the search box looks through. */
+function qTable(id, { cols, hay, sort, empty, storeKey, after }) {
+  const t = { id, cols, hay, rows: [], empty, after,
+              storeKey: storeKey || `reelarr.queue.sort.${id}`, sort };
+  try { const saved = JSON.parse(localStorage.getItem(t.storeKey)); if (saved && cols.some(c => c.key === saved.key)) t.sort = saved; } catch { /* private mode */ }
+  const table = $("#" + id);
+  table.querySelector("thead").innerHTML = "<tr>" + cols.map(c =>
+    `<th${c.sort ? ` data-sort="${c.key}" tabindex="0"` : ""}${c.cls ? ` class="${c.cls}"` : ""}${c.title ? ` title="${esc(c.title)}"` : ""}>${c.label}</th>`).join("") + "</tr>";
+  const pick = th => {
+    const key = th.dataset.sort, col = cols.find(c => c.key === key);
+    t.sort = t.sort.key === key ? { key, dir: -t.sort.dir } : { key, dir: col.desc ? -1 : 1 };
+    try { localStorage.setItem(t.storeKey, JSON.stringify(t.sort)); } catch { /* private mode */ }
+    qRender(id);
+  };
+  table.querySelectorAll("th[data-sort]").forEach(th => {
+    th.addEventListener("click", () => pick(th));
+    th.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(th); } });
+  });
+  qTables[id] = t;
+  return t;
 }
-function renderDownloads() {
-  const rows = [...queueRows];
-  const { key, dir } = qSort;
+
+function qMatches(t, row) {
+  if (!qQuery) return true;
+  const text = lc(t.hay(row).filter(x => x != null && x !== "").join(" "));
+  return qQuery.split(/\s+/).every(w => text.includes(w));
+}
+
+function qRender(id) {
+  const t = qTables[id];
+  const col = t.cols.find(c => c.key === t.sort.key) || t.cols.find(c => c.sort);
+  const dir = t.sort.dir;
+  const tie = (a, b) => String(t.hay(a)[0] ?? "").localeCompare(String(t.hay(b)[0] ?? ""));
+  const rows = t.rows.filter(r => qMatches(t, r));
   rows.sort((a, b) => {
-    const va = sortValue(a, key), vb = sortValue(b, key);
-    if (va == null && vb == null) return (a.name || "").localeCompare(b.name || "");
-    if (va == null) return 1;                // unknowns always last, whichever way
-    if (vb == null) return -1;
+    const va = col.sort(a), vb = col.sort(b);
+    const na = va == null || va === "", nb = vb == null || vb === "";
+    if (na && nb) return tie(a, b);
+    if (na) return 1;                       // unknowns always last, whichever way
+    if (nb) return -1;
     if (va < vb) return -dir;
     if (va > vb) return dir;
-    return (a.name || "").localeCompare(b.name || "");
+    return tie(a, b);
   });
-  $$("#q-down th[data-sort]").forEach(th => {
-    if (th.dataset.sort === key) th.setAttribute("aria-sort", dir > 0 ? "ascending" : "descending");
+  const table = $("#" + id);
+  table.querySelectorAll("th[data-sort]").forEach(th => {
+    if (th.dataset.sort === col.key) th.setAttribute("aria-sort", dir > 0 ? "ascending" : "descending");
     else th.removeAttribute("aria-sort");
   });
-  $("#q-down-wrap").hidden = !rows.length;
-  $("#q-down-empty").hidden = rows.length > 0;
-  $("#q-down tbody").innerHTML = rows.map(d => `<tr>
-      <td class="num mono">${d.queue ?? "—"}</td>
-      <td class="tname" title="${esc(d.name)}"><div>${esc(d.name)}</div></td>
-      <td class="hide-sm"><span class="stamp st-${esc((d.status || d.state || "").replace(/\s+/g, "-"))}">${esc(d.status || d.state || "?")}</span></td>
-      <td style="white-space:nowrap"><span class="hide-sm">${vu(d.progress)}</span> <span class="hint mono">${(d.progress * 100).toFixed(d.progress < 1 ? 1 : 0)}%</span></td>
-      <td class="num mono hide-sm">${fmtBytes(d.size)}</td>
-      <td class="num mono hide-sm">${fmtRate(d.dl_speed)}</td>
-      <td class="num mono hide-md">${fmtRate(d.ul_speed)}</td>
-      <td class="num mono">${fmtEta(d.eta)}</td>
-      <td class="num mono hide-sm">${d.seeds ?? "—"} / ${d.peers ?? "—"}</td>
-      <td class="num mono hide-md">${d.ratio == null ? "—" : d.ratio.toFixed(2)}</td>
-      <td class="num mono hide-md">${d.added ? fmtTime(d.added) : "—"}</td></tr>`).join("");
-  const down = rows.reduce((t, d) => t + (d.dl_speed || 0), 0), up = rows.reduce((t, d) => t + (d.ul_speed || 0), 0);
-  const left = rows.reduce((t, d) => t + (d.size != null && d.done != null ? Math.max(0, d.size - d.done) : 0), 0);
-  $("#q-down-total").textContent = rows.length
-    ? `${rows.length} item${rows.length === 1 ? "" : "s"} · ↓ ${fmtRate(down)} · ↑ ${fmtRate(up)} · ${fmtBytes(left)} left`
-    : "";
+  table.querySelector("tbody").innerHTML = rows.map(r =>
+    `<tr${r.id != null ? ` data-rid="${esc(r.id)}"` : ""}>` + t.cols.map(c => `<td${c.cls ? ` class="${c.cls}"` : ""}>${c.cell(r)}</td>`).join("") + "</tr>").join("");
+  const wrap = table.closest(".tbl-scroll");
+  wrap.hidden = !rows.length;
+  const e = $(`#${id}-empty`);
+  e.hidden = rows.length > 0;
+  e.textContent = t.rows.length ? `Nothing here matches “${qQuery}”.` : t.empty;
+  const n = $(`#${id}-n`);
+  if (n) n.textContent = !t.rows.length ? "" : rows.length === t.rows.length ? `(${t.rows.length})` : `(${rows.length} of ${t.rows.length})`;
+  if (t.after) t.after(rows);
+  return rows.length;
 }
-$$("#q-down th[data-sort]").forEach(th => th.addEventListener("click", () => {
-  const key = th.dataset.sort;
-  // numbers that are "more is interesting" start high-to-low; the rest low-to-high
-  const startDesc = ["progress", "dl_speed", "ul_speed", "seeds", "ratio", "added", "size"].includes(key);
-  qSort = qSort.key === key ? { key, dir: -qSort.dir } : { key, dir: startDesc ? -1 : 1 };
-  try { localStorage.setItem(QSORT_KEY, JSON.stringify(qSort)); } catch { /* private mode */ }
-  renderDownloads();
-}));
+
+function qRenderAll() {
+  let shown = 0, total = 0;
+  for (const id of Object.keys(qTables)) { shown += qRender(id); total += qTables[id].rows.length; }
+  $("#q-search-n").textContent = qQuery ? `${shown} of ${total} match` : "";
+}
+
+const releaseCols = (whyLabel) => [
+  { key: "date", label: "Date", cls: "mono", sort: x => x.data.date, cell: x => esc(x.data.date || "—") },
+  { key: "show", label: "Show", sort: x => lc(x.data.title || x.release_id), cell: x =>
+      `<a href="${esc(x.data.url)}" target="_blank" rel="noopener">${esc(x.data.title || x.release_id)}</a>
+       ${x.data.owned ? '<span class="pill good">in library</span>' : ""}
+       ${x.data.restricted ? `<span class="pill bad" title="${esc(x.data.restricted)}">can't download</span>` : ""}` },
+  { key: "artist", label: "Artist", cls: "hide-sm", sort: x => lc(x.artist_name), cell: x => esc(x.artist_name || "—") },
+  { key: "source", label: "Source", sort: x => srcRank(x.data.source_type), cell: x =>
+      x.data.source_type ? `<span class="pill ${SRC_CLASS(x.data.source_type)}">${esc(x.data.source_type)}</span>` : '<span class="hint">?</span>' },
+  { key: "why", label: whyLabel, cls: "hide-sm hint", sort: x => lc(x.reason), cell: x => esc(x.reason || "") },
+  { key: "found", label: "Found", cls: "num mono hide-md", desc: true, sort: x => x.updated_at, cell: x => fmtTime(x.updated_at) },
+];
+const releaseHay = x => [x.data.title || x.release_id, x.data.date, x.artist_name, x.data.source_type,
+                         x.reason, x.release_id, (x.data.formats || []).join(" ")];
+
+qTable("q-wanted", {
+  cols: [...releaseCols("Why"), { key: "act", label: "", cls: "actions", cell: () =>
+    '<button class="brass small" data-q="grab">Grab</button><button class="quiet small" data-q="ignore">Ignore</button>' }],
+  hay: releaseHay, sort: { key: "date", dir: -1 },
+  empty: "Nothing waiting. Monitored artists' new uploads appear here.",
+});
+
+qTable("q-down", {
+  storeKey: "reelarr.queue.sort",          // the sort you picked before 0.1.1 carries over
+  sort: { key: "queue", dir: 1 },
+  empty: "Nothing downloading.",
+  hay: d => [d.name, d.status || d.state, d.label],
+  cols: [
+    { key: "queue", label: "#", cls: "num mono", title: "Position in the download client's queue", sort: d => d.queue, cell: d => d.queue ?? "—" },
+    { key: "name", label: "Name", cls: "tname", sort: d => lc(d.name), cell: d => `<div title="${esc(d.name)}">${esc(d.name)}</div>` },
+    { key: "status", label: "Status", cls: "hide-sm", sort: d => statusRank(d.status), cell: d => stStamp(d.status || d.state || "?") },
+    { key: "progress", label: "Progress", desc: true, sort: d => d.progress, cell: d => progressCell(d.progress) },
+    { key: "size", label: "Size", cls: "num mono hide-sm", desc: true, sort: d => d.size, cell: d => fmtBytes(d.size) },
+    { key: "dl_speed", label: "Down", cls: "num mono hide-sm", desc: true, sort: d => d.dl_speed, cell: d => fmtRate(d.dl_speed) },
+    { key: "ul_speed", label: "Up", cls: "num mono hide-md", desc: true, sort: d => d.ul_speed, cell: d => fmtRate(d.ul_speed) },
+    { key: "eta", label: "ETA", cls: "num mono", sort: d => d.eta, cell: d => fmtEta(d.eta) },
+    { key: "seeds", label: "S / P", cls: "num mono hide-sm", title: "Seeds / peers", desc: true,
+      sort: d => d.seeds == null ? null : d.seeds * 10000 + (d.peers || 0), cell: d => `${d.seeds ?? "—"} / ${d.peers ?? "—"}` },
+    { key: "ratio", label: "Ratio", cls: "num mono hide-md", desc: true, sort: d => d.ratio, cell: d => d.ratio == null ? "—" : d.ratio.toFixed(2) },
+    { key: "added", label: "Added", cls: "num mono hide-md", desc: true, sort: d => d.added, cell: d => d.added ? fmtTime(d.added) : "—" },
+  ],
+  after: rows => {
+    const down = rows.reduce((t, d) => t + (d.dl_speed || 0), 0), up = rows.reduce((t, d) => t + (d.ul_speed || 0), 0);
+    const left = rows.reduce((t, d) => t + (d.size != null && d.done != null ? Math.max(0, d.size - d.done) : 0), 0);
+    $("#q-down-total").textContent = rows.length
+      ? `${rows.length} item${rows.length === 1 ? "" : "s"} · ↓ ${fmtRate(down)} · ↑ ${fmtRate(up)} · ${fmtBytes(left)} left`
+      : "";
+  },
+});
+
+qTable("q-intake", {
+  sort: { key: "when", dir: -1 },
+  empty: "Nothing in the watch folder waiting to be filed.",
+  hay: i => [i.folder_name, statusLabel(i.status), i.notes],
+  cols: [
+    { key: "when", label: "When", cls: "mono nowrap", desc: true, sort: i => i.updated_at, cell: i => fmtTime(i.updated_at) },
+    { key: "status", label: "Status", sort: i => lc(statusLabel(i.status)), cell: i => `<span class="stamp ${esc(i.status)}">${esc(statusLabel(i.status))}</span>` },
+    { key: "folder", label: "Folder", cls: "tname mono", sort: i => lc(i.folder_name), cell: i => `<div title="${esc(i.folder_name)}">${esc(i.folder_name)}</div>` },
+    { key: "notes", label: "Notes", cls: "hide-sm hint", sort: i => lc(i.notes), cell: i => esc(i.notes || "") },
+  ],
+});
+
+qTable("q-grabbed", {
+  sort: { key: "grabbed", dir: -1 },
+  empty: "Nothing grabbed yet.",
+  hay: g => [g.data.title || g.release_id, g.data.date, g.artist_name, g.data.source_type,
+             g.client && g.client.status, g.release_id],
+  cols: [
+    { key: "grabbed", label: "Grabbed", cls: "mono nowrap", desc: true, sort: g => g.updated_at, cell: g => fmtTime(g.updated_at) },
+    { key: "date", label: "Date", cls: "mono hide-sm", sort: g => g.data.date, cell: g => esc(g.data.date || "—") },
+    { key: "show", label: "Show", sort: g => lc(g.data.title || g.release_id), cell: g =>
+        g.data.url ? `<a href="${esc(g.data.url)}" target="_blank" rel="noopener">${esc(g.data.title || g.release_id)}</a>` : esc(g.data.title || g.release_id) },
+    { key: "artist", label: "Artist", cls: "hide-sm", sort: g => lc(g.artist_name), cell: g => esc(g.artist_name || "—") },
+    { key: "status", label: "Status", cls: "hide-sm", sort: g => g.client ? statusRank(g.client.status) : null, cell: g => g.client ? stStamp(g.client.status) :
+        '<span class="hint" title="Not in the download client (yet) — or it was removed there">not in client</span>' },
+    { key: "progress", label: "Progress", desc: true, sort: g => g.client && g.client.progress, cell: g => progressCell(g.client && g.client.progress) },
+    { key: "eta", label: "ETA", cls: "num mono", sort: g => !g.client ? null : g.client.progress >= 1 ? 0 : g.client.eta, cell: g =>
+        !g.client ? "—" : g.client.progress >= 1 ? "done" : fmtEta(g.client.eta) },
+  ],
+});
+
+qTable("q-skipped", {
+  cols: [...releaseCols("Why not"), { key: "act", label: "", cls: "actions", cell: () =>
+    '<button class="quiet small" data-q="grab">Grab anyway</button>' }],
+  hay: releaseHay, sort: { key: "found", dir: -1 },
+  empty: "Nothing passed over.",
+});
+
+// Buttons in Wanted / Passed over: one listener each, so a 4-second refresh can't drop clicks.
+for (const id of ["q-wanted", "q-skipped"]) {
+  $(`#${id} tbody`).addEventListener("click", async e => {
+    const b = e.target.closest("button[data-q]");
+    if (!b) return;
+    b.disabled = true;
+    const res = await api.post(`/api/releases/${b.closest("tr").dataset.rid}/${b.dataset.q}`);
+    if (res.error) { alert(res.error); b.disabled = false; return; }
+    refreshQueue(); refreshStatus();
+  });
+}
+
+let qTyping;
+$("#q-search").addEventListener("input", e => {
+  clearTimeout(qTyping);
+  qTyping = setTimeout(() => { qQuery = lc(e.target.value.trim()); qRenderAll(); }, 120);
+});
+$("#q-search").addEventListener("keydown", e => {
+  if (e.key === "Escape") { e.target.value = ""; qQuery = ""; qRenderAll(); }
+});
+
 async function refreshQueue() {
   const r = await api.get("/api/queue");
   if (r.error) return;
-  const w = r.wanted || [];
-  $("#q-wanted-n").textContent = w.length ? `(${w.length})` : "";
-  $("#q-wanted-empty").hidden = w.length > 0;
-  $("#q-wanted").hidden = !w.length;
-  $("#q-wanted tbody").innerHTML = w.map(x => `<tr data-rid="${x.id}">${releaseRow(x.data,
-    `<td class="hide-sm hint">${esc(x.artist_name || "")}${x.reason ? " — " + esc(x.reason) : ""}</td>
-     <td class="actions"><button class="brass small" data-q="grab">Grab</button><button class="quiet small" data-q="ignore">Ignore</button></td>`,
-    { formats: false })}</tr>`).join("");
-  $$("#q-wanted [data-q]").forEach(b => b.addEventListener("click", async () => {
-    const rid = b.closest("tr").dataset.rid;
-    b.disabled = true;
-    const res = await api.post(`/api/releases/${rid}/${b.dataset.q}`);
-    if (res.error) { alert(res.error); b.disabled = false; return; }
-    refreshQueue(); refreshStatus();
-  }));
   const gates = [];
   if (!r.torrent_folder) gates.push("No .torrent folder is set, so nothing can be grabbed — choose one in Settings → Torrents.");
   else if (!r.client && !r.client_error) gates.push("No download client is set, so grabbed .torrent files will sit in the torrent folder — set one in Settings → Torrents.");
   if (r.dry_run) gates.push("Dry run is on: artists set to grab automatically leave new finds here instead. Grab buttons still work.");
   $("#q-gates").hidden = !gates.length;
   $("#q-gates").innerHTML = gates.map(x => `<p>${esc(x)}</p>`).join("");
-  const sk = r.skipped || [];
-  $("#q-skipped-empty").hidden = sk.length > 0;
-  $("#q-skipped").hidden = !sk.length;
-  $("#q-skipped tbody").innerHTML = sk.map(x => `<tr data-rid="${x.id}">${releaseRow(x.data,
-    `<td class="hide-sm hint">${esc(x.artist_name || "")}${x.reason ? " — " + esc(x.reason) : ""}</td>
-     <td class="actions"><button class="quiet small" data-q="grab">Grab anyway</button></td>`,
-    { formats: false })}</tr>`).join("");
-  $$("#q-skipped [data-q]").forEach(b => b.addEventListener("click", async () => {
-    const rid = b.closest("tr").dataset.rid;
-    b.disabled = true;
-    const res = await api.post(`/api/releases/${rid}/grab`);
-    if (res.error) { alert(res.error); b.disabled = false; return; }
-    refreshQueue(); refreshStatus();
-  }));
-  $("#q-client").textContent = r.client ? `(${r.client})` : r.client_error ? `— ${r.client_error}` : "— no download client set";
-  queueRows = r.downloading || [];
-  renderDownloads();
-  $("#q-intake").innerHTML = (r.intake || []).length ? r.intake.map(i => `<div class="entry">
-      <span class="when">${fmtTime(i.updated_at)}</span><span class="stamp ${esc(i.status)}">${esc(statusLabel(i.status))}</span>
-      <span class="what">${esc(i.folder_name)}</span></div>`).join("")
-    : '<p class="empty">Nothing in the watch folder waiting to be filed.</p>';
-  $("#q-grabbed").innerHTML = (r.grabbed || []).length ? r.grabbed.map(g => `<div class="entry">
-      <span class="when">${fmtTime(g.updated_at)}</span><span class="stamp grabbed">grabbed</span>
-      <span class="what">${esc(g.data.title || g.release_id)} <span class="dim">— ${esc(g.artist_name || "")}</span></span></div>`).join("")
-    : '<p class="empty">Nothing grabbed yet.</p>';
+  $("#q-client").textContent = r.client ? `· ${r.client}` : r.client_error ? `— ${r.client_error}` : "— no download client set";
+  qTables["q-wanted"].rows = r.wanted || [];
+  qTables["q-down"].rows = r.downloading || [];
+  qTables["q-intake"].rows = r.intake || [];
+  qTables["q-grabbed"].rows = r.grabbed || [];
+  qTables["q-skipped"].rows = r.skipped || [];
+  // don't re-draw under someone mid-click on a button
+  if (document.activeElement && document.activeElement.matches("#view-queue tbody button")) return;
+  qRenderAll();
 }
 
 /* ── System ── */
