@@ -97,3 +97,41 @@ def test_queue_api_lists_until_imported(tmp_path, monkeypatch):
     assert rows["dl"]["queue"] == 1 and rows["dl"]["eta"] == 60
     assert rows["done-waiting"]["status"] == "import pending"
     assert "save_path" not in rows["dl"]
+
+
+def test_recently_grabbed_shows_progress_and_eta(tmp_path, monkeypatch):
+    """Recently grabbed: each grab carries its torrent's status, progress and
+    ETA — including ones already handed to the library."""
+    c = client(tmp_path)
+    setup_admin(c)
+    cfgm = importlib.import_module("app.config")
+    cfgm.set_key(["torrents"], {**cfgm.load()["torrents"], "enabled": True, "url": "http://x",
+                                "label": "bootlegs", "import_completed": True})
+    clients = importlib.import_module("app.clients")
+    base = importlib.import_module("app.clients.base")
+    torrents = importlib.import_module("app.torrents")
+    monitor = importlib.import_module("app.monitor")
+    a = monitor.save_artist("Goose")
+    conn = monitor._c()
+    for rid, title in (("goose2026-09-02", "Goose Live at Red Rocks"), ("goose2026-08-14", "x"),
+                       ("goose2026-01-01", "y")):
+        conn.execute("INSERT INTO releases (artist_id, indexer, release_id, status, reason, data, first_seen, updated_at) "
+                     "VALUES (?, 'lma', ?, 'grabbed', '', ?, 1, 1)",
+                     (a["id"], rid, json.dumps({"title": title, "date": rid[5:]})))
+    conn.commit()
+
+    class Fake:
+        name = "Fake"
+        def connect(self): pass
+        def get_torrents(self, label=""):
+            return [base.TorrentInfo(id="a", name="goose2026-09-02", progress=0.4, status="downloading", eta=90),
+                    base.TorrentInfo(id="b", name="goose2026-08-14", progress=1, finished=True, status="seeding")]
+    monkeypatch.setattr(clients, "build", lambda cfg: Fake())
+    torrents._mark_imported("b")
+    r = c.get("/api/queue").json()
+    g = {x["release_id"]: x for x in r["grabbed"]}
+    assert g["goose2026-09-02"]["client"] == {"status": "downloading", "progress": 0.4, "eta": 90,
+                                              "dl_speed": None, "name": "goose2026-09-02"}
+    assert g["goose2026-08-14"]["client"]["status"] == "imported"
+    assert g["goose2026-01-01"]["client"] is None             # not in the client
+    assert [d["name"] for d in r["downloading"]] == ["goose2026-09-02"]
