@@ -82,7 +82,7 @@ REELARR_MEDIA_PATH=/mnt/user
 | `REELARR_MEDIA_DIR` | `./media` | Host folder with your music and downloads |
 | `REELARR_MEDIA_PATH` | `/media` | Where that folder appears inside the container |
 
-**unRAID Community Applications:** `unraid/reelarr.xml` is a ready template.
+**unRAID Community Applications:** `templates/reelarr.xml` is a ready template (with `ca_profile.xml` at the repo root).
 
 ### Bare metal
 
