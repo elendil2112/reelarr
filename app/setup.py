@@ -296,6 +296,14 @@ def check_folders(watch: str, library: str, torrent_dir: str = "") -> dict:
 
 # ── Download client: where does it put things, and can we see them? ──────────
 
+def _exists(p) -> bool:
+    """exists(), but a folder we aren't allowed to look into is simply 'not here'."""
+    try:
+        return Path(p).exists()
+    except OSError:
+        return False
+
+
 def _suggest(client_path: str, search_roots: list):
     """Find where a client's path shows up on our side by matching its
     trailing folders under our roots (up to two extra levels down).
@@ -313,7 +321,7 @@ def _suggest(client_path: str, search_roots: list):
             except OSError:
                 pass
             for cand in candidates:
-                if cand.exists():
+                if _exists(cand):
                     # the client's prefix is what's left after the matched tail;
                     # keep it at least one folder deep, so the rule is
                     # "/downloads → …" rather than a catch-all "/ → …"
@@ -347,7 +355,7 @@ def probe_client(cfg_override: dict = None, limit: int = 12) -> dict:
             continue
         local = torrents.map_path(src, mapping)
         samples.append({"name": t.name, "client_path": src, "local_path": local,
-                        "visible": Path(local).exists()})
+                        "visible": _exists(local)})
         if len(samples) >= limit:
             break
     if not samples:
@@ -373,7 +381,7 @@ def probe_client(cfg_override: dict = None, limit: int = 12) -> dict:
         proposed = dict(mapping)
         proposed[client_prefix] = local_prefix
         fixed = sum(1 for x in samples
-                    if Path(torrents.map_path(x["client_path"], proposed)).exists())
+                    if _exists(torrents.map_path(x["client_path"], proposed)))
         out["suggestion"] = {"client": client_prefix, "local": local_prefix,
                              "fixes": fixed, "of": len(samples)}
         break
