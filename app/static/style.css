@@ -435,3 +435,13 @@ textarea.notes-body { width: 100%; min-height: calc(100vh - 300px); resize: vert
   .notes-list { max-height: 34vh; }
   textarea.notes-body { min-height: 55vh; }
 }
+
+/* Review → Track titles */
+details.trk { margin: 10px 0 4px; }
+details.trk summary { cursor: pointer; font-size: 13.5px; }
+details.trk .tbl { margin-top: 6px; }
+.trk-tbl td.trk-file { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trk-tbl tr.trk-extra td { color: var(--faded); }
+.trk-tbl tr.trk-extra td:nth-child(4) { font-style: italic; }
+.trk-tbl tr.trk-none td:nth-child(4) { color: var(--signal); }
+@media (max-width: 720px) { .trk-tbl td.trk-file { max-width: 38vw; } }

@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import auth, fileops, indexers, migrations, monitor, notes, providers, setup, system, paths as paths_mod
 from .version import __version__
-from . import config, database as db, pipeline, scheduler, watcher, library_index, audit, sources, torrents, clients, lma
+from . import config, database as db, pipeline, scheduler, watcher, library_index, audit, sources, torrents, clients, lma, metadata
 
 STATIC = Path(__file__).parent / "static"
 providers.load()          # before anything reads settings: providers add defaults
@@ -660,6 +660,30 @@ def api_approve(show_id: int, meta: dict = Body(default={})):
 def api_replace(show_id: int, meta: dict = Body(default={})):
     result = pipeline.replace_show(show_id, meta)
     return JSONResponse(result, status_code=400 if "error" in result else 200)
+
+
+@app.post("/api/show/{show_id}/tracks")
+def api_show_tracks(show_id: int, body: dict = Body(default={})):
+    """How the setlist pairs with this show's files — which files are songs,
+    which are tuning/crowd/breaks, and the title each one gets. Send
+    {"extras": [file names]} to preview your own choice of non-songs."""
+    from . import align
+    row = db.get_show(show_id)
+    if not row:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    show_dir = Path(row["current_path"] or "")
+    if not show_dir.is_dir():
+        return JSONResponse({"error": "The show's folder isn't there any more."}, status_code=404)
+    meta = json.loads(row["meta"] or "{}")
+    if meta.get("parts"):
+        return {"parts": True, "entries": [], "ok": True, "note": ""}
+    extras = body.get("extras") if isinstance(body.get("extras"), list) else meta.get("extras") or None
+    files = pipeline._audio_files(show_dir, metadata.AUDIO_EXTS)
+    p = align.plan(files, meta.get("tracks") or [],
+                   extras=[str(x) for x in extras][:200] if extras is not None else None)
+    return {"entries": [{k: e[k] for k in ("name", "seconds", "kind", "title")} for e in p["entries"]],
+            "ok": p["ok"], "note": p["note"], "how": p["how"], "extras": p["extras"],
+            "songs": len(meta.get("tracks") or [])}
 
 
 @app.post("/api/review/toss_duplicates")
