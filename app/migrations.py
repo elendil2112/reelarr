@@ -155,6 +155,21 @@ def _main_v6_artist_notes(c):
     c.execute("ALTER TABLE monitored_artists ADD COLUMN last_note TEXT DEFAULT ''")
 
 
+def _main_v7_notes(c):
+    # Your own notes, kept on the Notes page. Deleting one only marks it
+    # (deleted_at) so it can be brought back.
+    c.execute("""CREATE TABLE notes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        title       TEXT NOT NULL DEFAULT '',
+        body        TEXT NOT NULL DEFAULT '',
+        pinned      INTEGER NOT NULL DEFAULT 0,
+        rev         INTEGER NOT NULL DEFAULT 1,     -- bumps on every save; stops two tabs overwriting each other
+        created_at  REAL NOT NULL,
+        updated_at  REAL NOT NULL,
+        deleted_at  REAL)""")
+    c.execute("CREATE INDEX idx_notes_live ON notes(deleted_at, pinned, updated_at)")
+
+
 MAIN_STEPS = [
     (1, "baseline (Barbosa schema)", _main_v1_baseline),
     (2, "file-operation journal for undo", _main_v2_file_journal),
@@ -162,6 +177,7 @@ MAIN_STEPS = [
     (4, "users and sessions", _main_v4_auth),
     (5, "monitored artists and releases", _main_v5_monitoring),
     (6, "last check result per artist", _main_v6_artist_notes),
+    (7, "notes", _main_v7_notes),
 ]
 
 

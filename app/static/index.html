@@ -30,6 +30,7 @@
       <button class="navbtn" data-view="discover">Discover</button>
       <button class="navbtn" data-view="queue">Queue <span id="wanted-count" class="count violet" hidden></span></button>
       <button class="navbtn" data-view="review">Review <span id="review-count" class="count violet" hidden></span></button>
+      <button class="navbtn" data-view="notes">Notes</button>
       <span id="provider-nav"></span>
       <button class="navbtn" data-view="maintenance">Maintenance</button>
       <button class="navbtn" data-view="activity">Activity</button>
@@ -186,6 +187,47 @@
       <div id="review-list" class="entries"></div>
       <p id="review-empty" class="empty" hidden>Nothing needs review.</p>
       <div id="review-pager" class="pager"></div>
+    </section>
+
+    <!-- ── Notes ── -->
+    <section id="view-notes" class="view">
+      <header class="view-head">
+        <h2>Notes</h2>
+        <p class="lede">Tapes to chase, trades in progress, which source you liked. Everything saves as you type.</p>
+      </header>
+      <div class="notes-wrap">
+        <aside class="notes-side">
+          <div class="notes-side-head">
+            <input id="nt-search" type="search" spellcheck="false" autocomplete="off" placeholder="Search notes" aria-label="Search notes">
+            <button id="nt-new" class="brass small" title="New note (Alt+N)">New</button>
+          </div>
+          <ul id="nt-list" class="notes-list" aria-label="Your notes"></ul>
+          <p id="nt-list-empty" class="empty" hidden></p>
+        </aside>
+        <div class="notes-main">
+          <div id="nt-editor" hidden>
+            <input id="nt-title" class="notes-title" type="text" maxlength="200" placeholder="Title" aria-label="Title" spellcheck="true">
+            <div class="notes-meta">
+              <span id="nt-status" class="hint mono" aria-live="polite"></span>
+              <span style="flex:1"></span>
+              <button id="nt-pin" class="quiet small" aria-pressed="false">Pin</button>
+              <button id="nt-delete" class="quiet small">Delete</button>
+            </div>
+            <div id="nt-conflict" class="panel warn-panel" hidden>
+              <p>This note was changed in another window or on another device since you opened it.</p>
+              <div class="row-actions">
+                <button id="nt-keep-mine" class="brass small">Keep my version</button>
+                <button id="nt-take-theirs" class="quiet small">Use the other version</button>
+              </div>
+            </div>
+            <textarea id="nt-body" class="notes-body" spellcheck="true" aria-label="Note" placeholder="Write anything…"></textarea>
+          </div>
+          <div id="nt-none" class="notes-none">
+            <p class="empty">Pick a note, or start a new one.</p>
+          </div>
+          <p id="nt-undo" class="msg hint" hidden></p>
+        </div>
+      </div>
     </section>
 
     <!-- ── Settings ── -->

@@ -44,6 +44,11 @@ def _housekeeping():
         fileops.prune_journal()
     except Exception as e:
         db.log("warn", "trash", f"housekeeping failed: {e}")
+    try:
+        from . import notes
+        notes.purge()
+    except Exception as e:
+        db.log("warn", "system", f"clearing old deleted notes failed: {e}")
 
 
 def stop():

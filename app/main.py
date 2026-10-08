@@ -9,7 +9,7 @@ from fastapi import FastAPI, Body, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, fileops, indexers, migrations, monitor, providers, setup, system, paths as paths_mod
+from . import auth, fileops, indexers, migrations, monitor, notes, providers, setup, system, paths as paths_mod
 from .version import __version__
 from . import config, database as db, pipeline, scheduler, watcher, library_index, audit, sources, torrents, clients, lma
 
@@ -511,6 +511,65 @@ def _attach_client(grabbed: list, seen: list):
         g["client"] = None if d is None else {
             "status": d.get("status") or d.get("state") or "", "progress": d.get("progress"),
             "eta": d.get("eta"), "dl_speed": d.get("dl_speed"), "name": d.get("name")}
+
+
+# ── Notes ────────────────────────────────────────────────────────────────────
+
+def _note_body(body: dict) -> dict:
+    out = {}
+    for k in ("title", "body"):
+        if k in body:
+            if not isinstance(body[k], str):
+                raise ValueError(f"{k} must be text")
+            out[k] = body[k]
+    if "pinned" in body:
+        out["pinned"] = bool(body["pinned"])
+    return out
+
+
+@app.get("/api/notes")
+def api_notes():
+    return {"notes": notes.list_notes()}
+
+
+@app.post("/api/notes")
+def api_note_new(body: dict = Body(default={})):
+    try:
+        f = _note_body(body)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return notes.create(f.get("title", ""), f.get("body", ""))
+
+
+@app.get("/api/notes/{nid}")
+def api_note(nid: int):
+    n = notes.get(nid)
+    return n if n else JSONResponse({"error": "That note doesn't exist (any more)."}, status_code=404)
+
+
+@app.put("/api/notes/{nid}")
+def api_note_save(nid: int, body: dict = Body(default={})):
+    try:
+        f = _note_body(body)
+        return notes.save(nid, int(body.get("rev", 0)), **f)
+    except notes.Conflict as c:
+        return JSONResponse({"error": "This note was changed in another window.", "conflict": True,
+                             "current": c.current}, status_code=409)
+    except KeyError:
+        return JSONResponse({"error": "That note doesn't exist (any more)."}, status_code=404)
+    except (ValueError, TypeError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.delete("/api/notes/{nid}")
+def api_note_delete(nid: int):
+    return {"ok": notes.delete(nid)}
+
+
+@app.post("/api/notes/{nid}/restore")
+def api_note_restore(nid: int):
+    n = notes.restore(nid)
+    return n if n else JSONResponse({"error": "That note can't be brought back."}, status_code=404)
 
 
 # ── Discover (indexers) ──────────────────────────────────────────────────────
