@@ -6,6 +6,15 @@ databases first.
 
 ## Unreleased
 
+### Notes
+- A new **Notes** page for your own notes — tapes to chase, trades in
+  progress, which source you liked. Saves as you type, when you switch notes
+  and when you leave the page. Pin notes to the top, search them, and undo a
+  delete. If the same note is edited in two windows, neither silently
+  overwrites the other: you choose which version to keep.
+- Notes live in `reelarr.db`, so they're in your backups. Deleted notes are
+  kept for 30 days, then cleared.
+
 ### Queue
 - Every Queue table — Wanted, Downloading, Coming in, Recently grabbed, Passed
   over — now sorts by any column: click a heading, click again to reverse.

@@ -726,6 +726,7 @@ function refreshCurrent() {
   else if (v === "activity") refreshLog();
   else if (v === "artists") refreshArtists();
   else if (v === "queue") refreshQueue();
+  else if (v === "notes") refreshNotes();
   else if (v === "system") refreshSystem();
   else if (v === "discover") initDiscover();
   else if (v === "settings" && !settingsCache) refreshSettings();
@@ -1284,6 +1285,217 @@ async function refreshQueue() {
   // don't re-draw under someone mid-click on a button
   if (document.activeElement && document.activeElement.matches("#view-queue tbody button")) return;
   qRenderAll();
+}
+
+/* ── Notes ── */
+// Saved as you type (a moment after you stop), when you switch notes, and when
+// you leave the page. Each save carries the revision this page last saw, so a
+// second tab can't silently overwrite the first.
+const NOTE_KEY = "reelarr.notes.open";
+const nt = { list: [], cur: null, dirty: false, saving: false, again: false, timer: null, retry: null, loaded: false };
+
+function ntStatus(text, bad = false) {
+  const s = $("#nt-status");
+  s.textContent = text;
+  s.classList.toggle("bad", bad);
+}
+const ntClock = t => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const ntTitle = n => (n.title || "").trim() || (n.preview || (n.body || "").trim().split("\n")[0] || "").slice(0, 80) || "Untitled";
+
+function ntRenderList() {
+  const q = lc($("#nt-search").value.trim());
+  const words = q ? q.split(/\s+/) : [];
+  const rows = nt.list.filter(n => !words.length || words.every(w => lc(n.title + " " + n.body).includes(w)));
+  $("#nt-list").innerHTML = rows.map(n => `<li data-id="${n.id}" class="${nt.cur && nt.cur.id === n.id ? "active" : ""}">
+      <button type="button"><span class="nt-t">${n.pinned ? '<span class="nt-pin" title="Pinned">◆</span>' : ""}${esc(ntTitle(n))}</span>
+      ${n.title && n.preview ? `<span class="nt-p">${esc(n.preview)}</span>` : ""}
+      <span class="nt-d">${fmtTime(n.updated_at)}</span></button></li>`).join("");
+  const e = $("#nt-list-empty");
+  e.hidden = rows.length > 0;
+  e.textContent = nt.list.length ? "No notes match." : "No notes yet.";
+}
+
+// Keep the sidebar's copy of the open note in step with what's on screen.
+function ntSyncListEntry(n) {
+  const i = nt.list.findIndex(x => x.id === n.id);
+  const first = (n.body || "").split("\n").map(s => s.trim()).find(Boolean) || "";
+  const entry = { ...n, preview: first.slice(0, 140) };
+  if (i < 0) nt.list.unshift(entry); else nt.list[i] = entry;
+  nt.list.sort((a, b) => (b.pinned - a.pinned) || (b.updated_at - a.updated_at));
+  ntRenderList();
+}
+
+async function ntLoadList() {
+  const r = await api.get("/api/notes");
+  if (r.error) return;
+  nt.list = r.notes || [];
+  ntRenderList();
+  if (!nt.loaded) {
+    nt.loaded = true;
+    let want = null;
+    try { want = Number(localStorage.getItem(NOTE_KEY)) || null; } catch { /* private mode */ }
+    const pick = nt.list.find(n => n.id === want) || nt.list[0];
+    if (pick) ntOpen(pick.id, false);
+  }
+}
+
+function ntShow(n) {
+  nt.cur = { id: n.id, rev: n.rev, title: n.title, body: n.body, pinned: n.pinned, updated_at: n.updated_at };
+  nt.dirty = false;
+  $("#nt-editor").hidden = false;
+  $("#nt-none").hidden = true;
+  $("#nt-conflict").hidden = true;
+  $("#nt-title").value = n.title;
+  $("#nt-body").value = n.body;
+  $("#nt-pin").setAttribute("aria-pressed", String(!!n.pinned));
+  $("#nt-pin").textContent = n.pinned ? "Pinned" : "Pin";
+  ntStatus(`Saved · ${ntClock(n.updated_at)}`);
+  try { localStorage.setItem(NOTE_KEY, String(n.id)); } catch { /* private mode */ }
+  ntRenderList();
+}
+
+async function ntOpen(id, focus = true) {
+  if (nt.cur && nt.cur.id === id) return;
+  await ntLeave();
+  const n = await api.get(`/api/notes/${id}`);
+  if (n.error) { ntStatus(n.error, true); ntLoadList(); return; }
+  ntShow(n);
+  if (focus) $("#nt-body").focus();
+}
+
+// Before switching away: save what's unsaved; drop a note that was never written in.
+async function ntLeave() {
+  if (!nt.cur) return;
+  clearTimeout(nt.timer);
+  if (nt.dirty) await ntSave();
+  const c = nt.cur;
+  if (!c.title.trim() && !c.body.trim() && !nt.dirty) {
+    await fetch(`/api/notes/${c.id}`, { method: "DELETE" }).catch(() => {});
+    nt.list = nt.list.filter(x => x.id !== c.id);
+  }
+}
+
+function ntChanged() {
+  if (!nt.cur) return;
+  nt.cur.title = $("#nt-title").value;
+  nt.cur.body = $("#nt-body").value;
+  nt.dirty = true;
+  ntStatus("Editing…");
+  clearTimeout(nt.timer);
+  nt.timer = setTimeout(ntSave, 700);
+}
+
+async function ntSave(extra = {}, keepalive = false) {
+  if (!nt.cur) return;
+  if (nt.saving) { nt.again = true; return; }
+  clearTimeout(nt.timer);
+  clearTimeout(nt.retry);
+  const c = nt.cur;
+  const sent = { title: c.title, body: c.body, rev: c.rev, ...extra };
+  nt.saving = true;
+  ntStatus("Saving…");
+  let r, status = 0;
+  try {
+    const res = await fetch(`/api/notes/${c.id}`, { method: "PUT", keepalive,
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(sent) });
+    status = res.status;
+    if (status === 401) { location.href = "/login"; return; }
+    r = await res.json();
+  } catch (e) {
+    r = { error: String(e) };
+  }
+  nt.saving = false;
+  if (nt.cur !== c) return;                         // switched notes meanwhile; that save still landed
+  if (status === 409 && r.conflict) {
+    nt.theirs = r.current;
+    $("#nt-conflict").hidden = false;
+    ntStatus("Not saved — changed elsewhere", true);
+    return;
+  }
+  if (r.error || status >= 400) {
+    ntStatus(status === 404 ? "This note was deleted elsewhere." : "Not saved — retrying…", true);
+    if (status !== 404 && status !== 400) nt.retry = setTimeout(() => ntSave(), 5000);
+    return;
+  }
+  c.rev = r.rev; c.updated_at = r.updated_at; c.pinned = r.pinned;
+  // typed more while that was in flight? then there's still something to save
+  nt.dirty = c.title !== sent.title || c.body !== sent.body;
+  ntSyncListEntry({ ...r, title: c.title, body: c.body });
+  if (nt.dirty || nt.again) { nt.again = false; ntSave(); }
+  else ntStatus(`Saved · ${ntClock(r.updated_at)}`);
+}
+
+async function ntNew() {
+  await ntLeave();
+  const n = await api.post("/api/notes", {});
+  if (n.error) { ntStatus(n.error, true); return; }
+  ntSyncListEntry(n);
+  ntShow(n);
+  $("#nt-title").focus();
+}
+
+$("#nt-title").addEventListener("input", ntChanged);
+$("#nt-body").addEventListener("input", ntChanged);
+$("#nt-title").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#nt-body").focus(); } });
+$("#nt-new").addEventListener("click", ntNew);
+$("#nt-search").addEventListener("input", ntRenderList);
+$("#nt-search").addEventListener("keydown", e => { if (e.key === "Escape") { e.target.value = ""; ntRenderList(); } });
+$("#nt-list").addEventListener("click", e => {
+  const li = e.target.closest("li[data-id]");
+  if (li) ntOpen(Number(li.dataset.id));
+});
+$("#nt-pin").addEventListener("click", () => {
+  if (!nt.cur) return;
+  const pinned = !nt.cur.pinned;
+  $("#nt-pin").setAttribute("aria-pressed", String(pinned));
+  $("#nt-pin").textContent = pinned ? "Pinned" : "Pin";
+  ntSave({ pinned });
+});
+$("#nt-delete").addEventListener("click", async () => {
+  if (!nt.cur) return;
+  const c = nt.cur;
+  clearTimeout(nt.timer);
+  if (nt.dirty) await ntSave();
+  const r = await fetch(`/api/notes/${c.id}`, { method: "DELETE" }).then(jsonOrErr).catch(e => ({ error: String(e) }));
+  if (r.error) { ntStatus(r.error, true); return; }
+  nt.list = nt.list.filter(x => x.id !== c.id);
+  nt.cur = null;
+  $("#nt-editor").hidden = true;
+  $("#nt-none").hidden = false;
+  ntRenderList();
+  const u = $("#nt-undo");
+  u.hidden = false;
+  u.innerHTML = `Deleted “${esc(ntTitle(c))}”. <button class="quiet small" id="nt-undo-btn">Undo</button>`;
+  $("#nt-undo-btn").addEventListener("click", async () => {
+    const n = await api.post(`/api/notes/${c.id}/restore`);
+    u.hidden = true;
+    if (!n.error) { ntSyncListEntry(n); ntShow(n); }
+  });
+  setTimeout(() => { u.hidden = true; }, 15000);
+});
+$("#nt-keep-mine").addEventListener("click", () => {
+  if (!nt.cur || !nt.theirs) return;
+  nt.cur.rev = nt.theirs.rev;
+  $("#nt-conflict").hidden = true;
+  nt.dirty = true;
+  ntSave();
+});
+$("#nt-take-theirs").addEventListener("click", () => {
+  if (nt.theirs) ntShow(nt.theirs);
+});
+document.addEventListener("keydown", e => {
+  if (currentView() !== "notes") return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); if (nt.dirty) ntSave(); }
+  if (e.altKey && e.key.toLowerCase() === "n") { e.preventDefault(); ntNew(); }
+});
+// Leaving the tab or closing it: send what's unsaved straight away.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && nt.dirty && !nt.saving) ntSave({}, true);
+});
+window.addEventListener("pagehide", () => { if (nt.dirty && !nt.saving) ntSave({}, true); });
+
+function refreshNotes() {
+  ntLoadList();
 }
 
 /* ── System ── */

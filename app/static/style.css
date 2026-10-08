@@ -404,3 +404,34 @@ pre.code { font-family: var(--mono); font-size: 12.5px; background: var(--bg); b
 .stamp.st-stalled, .stamp.st-error { color: var(--rust, #c8553d); }
 
 .tbl .pill { white-space: nowrap; }
+
+/* ── Notes ── */
+.notes-wrap { display: grid; grid-template-columns: 260px 1fr; gap: 22px; align-items: start; }
+.notes-side { position: sticky; top: 16px; }
+.notes-side-head { display: flex; gap: 8px; margin-bottom: 10px; }
+.notes-side-head input { flex: 1; min-width: 0; }
+.notes-list { list-style: none; margin: 0; padding: 0; max-height: calc(100vh - 220px); overflow-y: auto;
+  border-top: 1px solid var(--line); }
+.notes-list li { border-bottom: 1px solid var(--line); }
+.notes-list button { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 10px 8px; cursor: pointer; border-radius: 4px; }
+.notes-list button:hover { background: var(--surface-2); }
+.notes-list button:focus-visible { outline: 1px solid var(--amber-hi); outline-offset: -1px; }
+.notes-list li.active button { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--brass); }
+.notes-list .nt-t { display: block; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notes-list .nt-p { display: block; color: var(--faded); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.notes-list .nt-d { display: block; color: var(--faded); font-family: var(--mono); font-size: 11px; margin-top: 3px; }
+.notes-list .nt-pin { color: var(--brass); margin-right: 4px; }
+.notes-main { min-width: 0; }
+input.notes-title { font-family: inherit; font-size: 20px; font-weight: 600; padding: 8px 10px; }
+.notes-meta { display: flex; gap: 8px; align-items: center; margin: 8px 0 10px; min-height: 28px; }
+#nt-pin[aria-pressed="true"] { color: var(--brass); border-color: var(--brass); }
+textarea.notes-body { width: 100%; min-height: calc(100vh - 300px); resize: vertical; line-height: 1.6;
+  font-family: var(--mono); font-size: 14px; padding: 12px 14px; tab-size: 4; }
+.notes-none { padding: 40px 0; }
+#nt-status.bad { color: var(--signal); }
+@media (max-width: 860px) {
+  .notes-wrap { grid-template-columns: 1fr; }
+  .notes-side { position: static; }
+  .notes-list { max-height: 34vh; }
+  textarea.notes-body { min-height: 55vh; }
+}
