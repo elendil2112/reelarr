@@ -762,17 +762,35 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
             log("info", "titles", f"adopted setlist.fm setlist "
                 f"({len(slf_tracks)} songs) over local titles")
 
+    # 1b) archive.org lists a title for every file of the recording — tuning
+    # and crowd tracks included — so when its count matches the files and the
+    # setlist's doesn't, it's the better pairing.
+    ia_tracks = ia_meta.tracks if ia_meta else []
+    if ia_tracks and audio_n and len(ia_tracks) == audio_n != len(merged.tracks) \
+            and not _mass_tagged(ia_tracks):
+        merged.tracks = [{**t, "title": clean_track_title(t["title"])} for t in ia_tracks]
+        provenance["tracks"] = "archive_org"
+        log("info", "titles", f"used archive.org's per-file titles ({len(ia_tracks)} files)")
+
     # 2) drop a mass-tagged degenerate list entirely (but keep real reprises)
     if _mass_tagged(merged.tracks):
         log("warn", "titles", "titles look mass-tagged — discarded")
         merged.tracks = []
         provenance.pop("tracks", None)
 
+    # 2b) pair titles with files: set aside tuning/crowd/set-break files first
+    alignment = None
+    if merged.tracks and audio_n:
+        from . import align
+        alignment = align.plan(_audio_files(show_dir, AUDIO_EXTS), merged.tracks)
+
     # 3) cross-check the final titles against the corpus + count
     if merged.tracks:
         recog = _corpus_recognition(merged.artist, merged.tracks)
         from_slf = provenance.get("tracks") == "setlistfm"
-        count_ok = audio_n == 0 or abs(len(merged.tracks) - audio_n) <= 1
+        count_ok = alignment is None or alignment["ok"]
+        if not count_ok and from_slf:
+            titles_uncertain = alignment["note"]
         # unknown artist with no corpus yet: can't validate, so trust setlist.fm
         # but be wary of purely-local titles
         corpus_size = library_index.songs_count_for(merged.artist)
@@ -781,8 +799,7 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
                 titles_uncertain = (f"only {int(recog*100)}% of titles match known "
                                     f"{merged.artist} songs")
             elif not count_ok:
-                titles_uncertain = (f"{len(merged.tracks)} titles vs {audio_n} "
-                                    f"audio files — setlist may be wrong")
+                titles_uncertain = alignment["note"]
             elif corpus_size < 5 and not slf_meta:
                 # no corpus and no setlist.fm confirmation — can't vouch for these
                 if _looks_unreliable(merged.tracks):
@@ -792,7 +809,7 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
     if merged.tracks and merged.artist:
         confirmed = provenance.get("tracks") == "setlistfm"
         library_index.learn_songs(
-            merged.artist, [t["title"] for t in merged.tracks], confirmed=confirmed)
+            merged.artist, _songs_only(merged.tracks), confirmed=confirmed)
 
     sanitize_location(merged)   # cross-source composition can re-mangle
 
@@ -885,7 +902,9 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
     return {"meta": merged, "provenance": provenance, "confidence": conf,
             "missing": missing, "curated": curated, "sidecar": sidecar,
             "artist_in_library": in_library,
-            "titles_uncertain": titles_uncertain}
+            "titles_uncertain": titles_uncertain,
+            "alignment": ({"how": alignment["how"], "extras": alignment["extras"]}
+                          if alignment else None)}
 
 
 # ── Album-art transplant ─────────────────────────────────────────────────────
@@ -1122,29 +1141,20 @@ def artist_folder_conventions(artist_dir: Path):
 
 # ── Tagging & filing ─────────────────────────────────────────────────────────
 
-def _track_for_file(meta: ShowMeta, filepath: Path, position: int,
-                    total_files: int) -> dict:
-    by_num = {t["num"]: t for t in meta.tracks}
-    # counts line up → sorted position is the most reliable mapping
-    if total_files == len(meta.tracks) and 0 < position <= len(meta.tracks):
-        return meta.tracks[position - 1]
-    # etree d1t03-style is unambiguous
-    m = re.search(r"d\d{1,2}t(\d{1,3})", filepath.stem, re.IGNORECASE)
-    if m and int(m.group(1)) in by_num:
-        return by_num[int(m.group(1))]
-    # otherwise try standalone 1-3 digit runs, last first (dates live up front)
-    for cand in reversed(re.findall(r"(?<!\d)(\d{1,3})(?!\d)", filepath.stem)):
-        if int(cand) in by_num:
-            return by_num[int(cand)]
-    return {}
+def _audio_files(folder: Path, exts=TAGGABLE_EXTS) -> list:
+    return sorted(p for p in folder.rglob("*") if p.suffix.lower() in exts and p.is_file())
+
+
+def _songs_only(tracks: list) -> list:
+    """Titles worth learning as songs — not Tuning, Crowd, Set Break…"""
+    from . import align
+    return [t["title"] for t in tracks if not align.is_filler(t["title"])]
 
 
 def tag_audio(show_dir: Path, meta: ShowMeta, log, b: "fileops.Batch"):
     if meta.parts:
         return _tag_parts(show_dir, meta, log, b)
-    audio = sorted(p for p in show_dir.rglob("*")
-                   if p.suffix.lower() in TAGGABLE_EXTS and p.is_file())
-    return _tag_files(audio, meta, meta, log, b)
+    return _tag_files(_audio_files(show_dir), meta, meta, log, b)
 
 
 def _tag_parts(show_dir: Path, meta: ShowMeta, log, b: "fileops.Batch") -> int:
@@ -1166,11 +1176,17 @@ def _tag_parts(show_dir: Path, meta: ShowMeta, log, b: "fileops.Batch") -> int:
 
 def _tag_files(audio: list, meta: ShowMeta, setlist: ShowMeta, log, b: "fileops.Batch",
                disc: int = 0, total_discs: int = 0) -> int:
+    from . import align
     album = meta.album_title
-    total = len(audio)
     loc = ", ".join(p for p in (meta.venue, meta.city, meta.state) if p)
-    for i, f in enumerate(audio, 1):
-        track = _track_for_file(setlist, f, i, total)
+    pairing = align.plan(audio, setlist.tracks, extras=meta.extras or None)
+    if setlist.tracks and pairing["extras"]:
+        log("info", "titles", ("not songs: " if pairing["ok"] else "probably not songs: ")
+            + align.summary(pairing))
+    if setlist.tracks and not pairing["ok"]:
+        log("warn", "titles", pairing["note"])
+    for i, (f, entry) in enumerate(zip(audio, pairing["entries"]), 1):
+        track = {"title": entry["title"]} if entry["title"] else {}
 
         def _write(f, track=track, i=i):
             if f.suffix.lower() == ".flac":
@@ -1218,8 +1234,8 @@ def _tag_files(audio: list, meta: ShowMeta, setlist: ShowMeta, log, b: "fileops.
         b.note("tags", files=len(audio), artist=meta.artist,
                album_artist=meta.album_artist, album=album, date=meta.date,
                **({"disc": disc} if disc else {}),
-               titled=sum(1 for i, f in enumerate(audio, 1)
-                          if _track_for_file(setlist, f, i, total)))
+               titled=sum(1 for e in pairing["entries"] if e["title"]),
+               **({"not_songs": pairing["extras"]} if pairing["extras"] else {}))
     return len(audio)
 
 
@@ -1346,9 +1362,13 @@ def _corpus_recognition(artist: str, tracks: list) -> float:
     corpus = library_index.known_songs(artist)
     if not corpus:
         return 1.0    # no corpus yet — don't penalize
-    recognized = sum(1 for t in tracks
+    from . import align
+    songs = [t for t in tracks if not align.is_filler(t["title"])]   # Tuning isn't a song to recognise
+    if not songs:
+        return 1.0
+    recognized = sum(1 for t in songs
                      if library_index.song_known(artist, t["title"]))
-    return recognized / len(tracks)
+    return recognized / len(songs)
 
 
 def process_show(show_dir: Path) -> dict:
@@ -1623,9 +1643,13 @@ def replace_show(show_id: int, edited_meta: dict) -> dict:
         setattr(meta, f, (edited_meta.get(f) if edited_meta.get(f) is not None
                           else stored.get(f, "")) or "")
     meta.tracks = stored.get("tracks", [])
+    meta.extras = _extras_from(edited_meta, stored)
     missing = [f for f in REQUIRED_FIELDS if not getattr(meta, f)]
     if missing:
         return {"error": f"still missing: {', '.join(missing)}"}
+    problem = _extras_problem(show_dir, meta)
+    if problem:
+        return {"error": problem}
 
     def _log(level, event, detail=""):
         db.log(level, event, f"{show_dir.name}: {detail}", show_id)
@@ -1701,6 +1725,22 @@ def toss_duplicates() -> dict:
     return {"tossed": tossed}
 
 
+def _extras_from(edited: dict, stored: dict) -> list:
+    """Files you marked 'not a song' in Review (names only, never paths)."""
+    raw = edited.get("extras") if isinstance(edited.get("extras"), list) else stored.get("extras", [])
+    # "" on its own means "you looked, and none of these are extras"
+    return [Path(str(x)).name if str(x).strip() else "" for x in (raw or [])][:50]
+
+
+def _extras_problem(show_dir: Path, meta: ShowMeta) -> str:
+    """Your 'not a song' ticks must leave exactly one file per song."""
+    if not (meta.extras and meta.tracks) or meta.parts:
+        return ""
+    from . import align
+    p = align.plan(_audio_files(show_dir, AUDIO_EXTS), meta.tracks, extras=meta.extras)
+    return "" if p["ok"] else f"Track titles: {p['note']}"
+
+
 def approve_show(show_id: int, edited_meta: dict) -> dict:
     """User approved (possibly edited) metadata from the review queue."""
     cfg = config.load()
@@ -1718,6 +1758,7 @@ def approve_show(show_id: int, edited_meta: dict) -> dict:
         setattr(meta, f, (edited_meta.get(f) if edited_meta.get(f) is not None
                           else stored.get(f, "")) or "")
     meta.tracks = stored.get("tracks", [])
+    meta.extras = _extras_from(edited_meta, stored)
     meta.notes = stored.get("notes", "")
     meta.parts = stored.get("parts", []) or []
     meta.bracket_override = stored.get("bracket_override", "") or ""
@@ -1732,6 +1773,9 @@ def approve_show(show_id: int, edited_meta: dict) -> dict:
     missing = [f for f in REQUIRED_FIELDS if not getattr(meta, f)]
     if missing:
         return {"error": f"still missing: {', '.join(missing)}"}
+    problem = _extras_problem(show_dir, meta)
+    if problem:
+        return {"error": problem}
 
     # learn from your edits: whatever Reelarr guessed vs what you kept.
     # These become standing corrections applied to every future show, exactly
@@ -1740,8 +1784,7 @@ def approve_show(show_id: int, edited_meta: dict) -> dict:
     # a setlist you approved from Review is authoritative — seed the corpus
     if meta.tracks and meta.artist:
         library_index.learn_songs(
-            (meta.album_artist or meta.artist),
-            [t["title"] for t in meta.tracks], confirmed=True)
+            (meta.album_artist or meta.artist), _songs_only(meta.tracks), confirmed=True)
 
     # a single show you approved by hand runs live even in dry-run; it's
     # journalled, so Activity → Undo puts it back in the watch folder

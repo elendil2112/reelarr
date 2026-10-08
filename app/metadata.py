@@ -341,6 +341,7 @@ class ShowMeta:
     # source and setlist, and the album's [bracket] joins the two sources.
     parts: list = field(default_factory=list)    # [{dir, disc, label, bracket, tracks}]
     bracket_override: str = ""
+    extras: list = field(default_factory=list)   # file names you marked "not a song" in Review
 
     FIELDS = ("artist", "host_artist", "date", "venue", "city", "state",
               "source_type", "official", "shnid", "recorder", "genre")
@@ -351,6 +352,8 @@ class ShowMeta:
         if self.parts:
             d["parts"] = self.parts
             d["bracket_override"] = self.bracket_override
+        if self.extras:
+            d["extras"] = self.extras
         return d
 
     @property
@@ -1040,11 +1043,14 @@ def parse_info_file(path: Path, known_venues: frozenset = frozenset()) -> ShowMe
             loose = (idx, s)
 
     tracknum = 0
+    set_no = 1
     for line in lines:
         s = line.strip()
         if _SET_RE.match(s):
             if "encore" in s.lower():
                 current_disc = 99
+            if meta.tracks:                  # a heading after songs starts the next set
+                set_no += 1
             continue
         m = _TRACK_RE.match(s)
         if m and len(m.group(2).strip()) > 1:
@@ -1053,7 +1059,7 @@ def parse_info_file(path: Path, known_venues: frozenset = frozenset()) -> ShowMe
                 continue
             tracknum += 1
             meta.tracks.append({"num": int(m.group(1)), "title": title,
-                                "disc": current_disc})
+                                "disc": current_disc, "set": set_no})
 
     # whole-file source inference: combines mic/soundboard/broadcast evidence
     # across every line — a "Taping Rig:" block implies AUD even with no

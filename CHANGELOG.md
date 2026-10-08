@@ -6,6 +6,25 @@ databases first.
 
 ## Unreleased
 
+### Track titles
+- **Fixed: titles one track off when a show starts with a tuning track.**
+  setlists don't list tuning, crowd or break tracks, so a show with one more
+  file than songs had every title shifted. Reelarr now sets those files aside
+  before pairing titles with files: a file whose own title or name says so
+  ("Tuning", "Crowd", "Set Break"…), or a short file (under 90 s) at the start,
+  the end, or between discs. They're titled by where they sit — Tuning, Set
+  Break, Encore Break, Crowd — or keep the label they already had.
+- When it can't tell which file isn't a song, the show waits in Review
+  instead of being filed with shifted titles. This now applies to setlist.fm
+  setlists too, which used to skip the check.
+- **Review → Track titles** lists every file with its length and the title
+  it would get, with a *not a song* tick box; File it writes exactly what's shown.
+- archive.org's per-file titles (which include tuning tracks) are used when
+  they cover every file and the setlist doesn't.
+- Fixed: when counts didn't match, track numbers were read from any digits in
+  a file name — the `1` of `d1t05` gave the last file the first song's title.
+- Tuning, Crowd and the like are no longer learned as songs.
+
 ### Notes
 - A new **Notes** page for your own notes — tapes to chase, trades in
   progress, which source you liked. Saves as you type, when you switch notes
