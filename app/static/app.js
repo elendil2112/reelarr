@@ -285,6 +285,12 @@ async function refreshReview() {
               ${f === "date" ? 'placeholder="YYYY-MM-DD"' : ""}>
           </div>`).join("")}
       </div>
+      ${(m.parts || []).length ? "" : `<details class="trk" data-trk ${/Titles need a look/.test(s.notes || "") ? "open" : ""}>
+        <summary>Track titles <span class="hint" data-trk-sum></span></summary>
+        <p class="hint">Tick <strong>not a song</strong> for tuning, crowd or break tracks — the songs then line up with the rest, in order.</p>
+        <div class="tbl-scroll"><table class="tbl trk-tbl"><thead><tr><th class="num">#</th><th>File</th><th class="num">Length</th><th>Title it gets</th><th>Not a song</th></tr></thead><tbody></tbody></table></div>
+        <p class="hint mono" data-trk-msg></p>
+      </details>`}
       <div class="row-actions">
         ${/duplicate/i.test(s.notes || "") ? '<button class="brass" data-act="replace">Replace the old copy</button>' : ""}
         <button class="${/duplicate/i.test(s.notes || "") ? "quiet" : "brass"}" data-act="approve">File it${/duplicate/i.test(s.notes || "") ? " alongside" : ""}</button>
@@ -306,6 +312,12 @@ async function refreshReview() {
   }
   dl.innerHTML = artistList.map(a => `<option value="${esc(a)}">`).join("");
 
+  $$("#review-list [data-trk], #dupes-list [data-trk]").forEach(d => {
+    const load = () => { if (!d.dataset.loaded) loadTracks(d.closest(".card")); };
+    if (d.open) load();
+    d.addEventListener("toggle", () => { if (d.open) load(); });
+  });
+
   $$("#review-list [data-act], #dupes-list [data-act]").forEach(btn => btn.addEventListener("click", async () => {
     const card = btn.closest(".card");
     const id = card.dataset.id;
@@ -315,6 +327,7 @@ async function refreshReview() {
       if (btn.dataset.act === "approve" || btn.dataset.act === "replace") {
         const meta = {};
         $$("input[data-field]", card).forEach(i => meta[i.dataset.field] = i.value.trim());
+        if (card.dataset.extras) meta.extras = JSON.parse(card.dataset.extras);
         const r = await api.post(`/api/show/${id}/${btn.dataset.act}`, meta);
         msg.textContent = r.error ? "✗ " + r.error
           : (btn.dataset.act === "replace" ? "✓ replaced the old copy → " : "✓ filed at ") + r.dest;
@@ -341,6 +354,8 @@ async function refreshReview() {
           msg.textContent = `✓ ${esc(r.venue || "venue found")}, ${esc(r.city || "")}${tl} — check it, then File it`;
           // stash tracks on the card so approve can send them along
           if (r.tracks && r.tracks.length) card.dataset.slfTracks = JSON.stringify(r.tracks);
+          const trk = $("[data-trk]", card);
+          if (trk) { delete card.dataset.extras; trk.dataset.loaded = ""; if (trk.open) loadTracks(card); }
         }
       } else {
         await api.post(`/api/show/${id}/reject`);
@@ -348,6 +363,33 @@ async function refreshReview() {
       }
     } finally { btn.disabled = false; }
   }));
+}
+
+// Review → Track titles: which file gets which title, and which aren't songs.
+const fmtLen = sec => sec == null ? "?" : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
+async function loadTracks(card, extras) {
+  const d = $("[data-trk]", card);
+  const body = extras ? { extras } : {};
+  const r = await api.post(`/api/show/${card.dataset.id}/tracks`, body);
+  d.dataset.loaded = "1";
+  const msg = $("[data-trk-msg]", d);
+  if (r.error) { msg.textContent = "✗ " + r.error; return; }
+  // File it writes exactly what's shown here
+  card.dataset.extras = JSON.stringify(["", ...r.extras]);
+  $("tbody", d).innerHTML = r.entries.map((e, i) => `<tr class="${e.kind === "extra" ? "trk-extra" : e.kind === "unmatched" ? "trk-none" : ""}">
+      <td class="num mono">${i + 1}</td>
+      <td class="mono trk-file" title="${esc(e.name)}">${esc(e.name)}</td>
+      <td class="num mono">${fmtLen(e.seconds)}</td>
+      <td>${e.title ? esc(e.title) : '<span class="hint">no title</span>'}</td>
+      <td><input type="checkbox" data-extra="${esc(e.name)}" aria-label="${esc(e.name)} is not a song" ${e.kind === "extra" ? "checked" : ""}></td></tr>`).join("");
+  const nExtra = r.entries.filter(e => e.kind === "extra").length;
+  $("[data-trk-sum]", d).textContent = `— ${r.entries.length} files, ${r.songs} songs${nExtra ? `, ${nExtra} not ${nExtra === 1 ? "a song" : "songs"}` : ""}${r.ok ? "" : " · needs a look"}`;
+  msg.className = "mono " + (r.ok ? "hint" : "bad");
+  msg.textContent = r.ok ? (r.songs ? "✓ every song has a file" : "No setlist yet — Pull from setlist.fm, or file it with the files' own titles.")
+    : "✗ " + r.note + (nExtra && r.how !== "yours" ? " — the ticked file is a guess: check it, then File it." : "");
+  $$("[data-extra]", d).forEach(c => c.addEventListener("change", () =>
+    // "" leads the list so "none ticked" still counts as your choice
+    loadTracks(card, ["", ...$$("[data-extra]", d).filter(x => x.checked).map(x => x.dataset.extra)])));
 }
 
 $("#btn-toss-dupes").addEventListener("click", async () => {

@@ -122,7 +122,7 @@ def test_barbosa_install_migrates_without_touching_originals(tmp_path):
     assert hashlib.sha1((cfg / "barbosa.db").read_bytes()).hexdigest() == before
     st = m["migrations"].status()
     assert st["reelarr.db"] == st["latest"]["reelarr.db"] >= 4
-    assert st["library_index.db"] == 1 and st["settings.json"] == 3
+    assert st["library_index.db"] == st["latest"]["library_index.db"] and st["settings.json"] == 3
     rows = m["database"].list_shows()
     assert rows and rows[0]["folder_name"] == "gd1977-05-08" and rows[0]["plan"] == ""
     s = json.loads((cfg / "settings.json").read_text())
