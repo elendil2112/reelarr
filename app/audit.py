@@ -25,7 +25,7 @@ from pathlib import Path
 
 from mutagen import File as MutagenFile
 
-from . import config, database as db, library_index
+from . import config, database as db, library_index, sanity
 from .metadata import parse_album_string, AUDIO_EXTS, TAGGABLE_EXTS, _US_STATES
 
 from . import paths
@@ -73,16 +73,35 @@ def _walk_shows(library_dir: Path):
                 yield artist_dir.name, child
 
 
-def _locate(date: str, recorded_name: str, index: dict):
-    """Find the show on disk today: match by date, break ties by similarity."""
+def _locate(date: str, rec_path: Path, index: dict):
+    """Find a filed show on disk today. Where it was filed, if it's still
+    there; otherwise only a folder that is plainly the same show — moved to
+    another artist folder or renamed a little. Another show that happens to
+    share the date is NOT it (that used to attach a deleted Toad the Wet
+    Sprocket show to the Grateful Dead's show of the same night, and teach
+    'Toad the Wet Sprocket → Grateful Dead')."""
     candidates = index.get(date, [])
-    if not candidates:
-        return None, None
-    if len(candidates) == 1:
-        return candidates[0]
-    best = max(candidates, key=lambda c: difflib.SequenceMatcher(
-        None, _norm(recorded_name), _norm(c[1].name)).ratio())
+    for artist_name, show in candidates:
+        if str(show) == str(rec_path):
+            return artist_name, show
+    rec_name = rec_path.name
+    rec_artist = _artist_folder_of(rec_path)
+    best, best_sim = (None, None), 0.0
+    for artist_name, show in candidates:
+        sim = difflib.SequenceMatcher(None, _norm(rec_name), _norm(show.name)).ratio()
+        same_artist = _norm(artist_name) == _norm(rec_artist)
+        if (same_artist and sim >= 0.6) or sim >= 0.85:
+            if sim > best_sim:
+                best, best_sim = (artist_name, show), sim
     return best
+
+
+def _artist_folder_of(show_dir: Path) -> str:
+    """'…/Jerry Garcia/jg1977/jg1977-…' → 'Jerry Garcia'."""
+    parent = show_dir.parent
+    if re.match(r"^.*?(?:19|20)\d{2}$", parent.name) and not re.search(r"\d{4}-\d{2}-\d{2}", parent.name):
+        parent = parent.parent
+    return parent.name
 
 
 # ── Learning pass ────────────────────────────────────────────────────────────
@@ -109,7 +128,7 @@ def learn_from_corrections() -> dict:
             continue
         rec_path = Path(row["filed_path"] or "")
         rec_artist = (meta.get("host_artist") or meta.get("artist") or "").strip()
-        actual_artist, actual_dir = _locate(date, rec_path.name, disk)
+        actual_artist, actual_dir = _locate(date, rec_path, disk)
         if actual_dir is None:
             missing += 1
             db.update_show(row["id"], status="rejected",
@@ -118,10 +137,16 @@ def learn_from_corrections() -> dict:
 
         changed = False
 
-        # 1) artist correction: you moved it to a different folder
+        # 1) artist correction: you moved it to a different folder. Only a
+        # respelling is learned ('Motorhead' → 'Motörhead'); a move to an
+        # unrelated act is a one-off, not a rule for every future show.
         if rec_artist and actual_artist and _norm(actual_artist) != _norm(rec_artist):
-            library_index.correction_set("artist", rec_artist, actual_artist)
-            learned_artists[rec_artist] = actual_artist
+            if sanity.names_related(rec_artist, actual_artist):
+                library_index.correction_set("artist", rec_artist, actual_artist)
+                learned_artists[rec_artist] = actual_artist
+            else:
+                db.log("info", "learned", f"{rec_path.name}: moved from {rec_artist} to {actual_artist} — "
+                       "kept for this show only, not learned as a rule (the names are unrelated)")
             changed = True
 
         # 2) venue/location correction: you retagged the album
@@ -129,7 +154,8 @@ def learn_from_corrections() -> dict:
         if tags.get("album"):
             actual_meta, complete = parse_album_string(tags["album"])
             rv, av = meta.get("venue", ""), actual_meta.venue
-            if av and actual_meta.city and rv and _norm(av) != _norm(rv):
+            if av and actual_meta.city and rv and _norm(av) != _norm(rv) \
+                    and sanity.plausible_location(actual_meta.city, actual_meta.state):
                 trio = {"venue": av, "city": actual_meta.city,
                         "state": actual_meta.state}
                 # key the correction on the wrong string AND its head segment —
@@ -143,7 +169,7 @@ def learn_from_corrections() -> dict:
                         library_index.correction_set("venue", k, trio)
                 learned_venues[rv] = trio
                 changed = True
-            if av and actual_meta.city:
+            if av and actual_meta.city and sanity.plausible_location(actual_meta.city, actual_meta.state):
                 # corrected or confirmed — either way, feed the gazetteer
                 library_index._upsert_venue(
                     library_index._conn(), av, actual_meta.city, actual_meta.state)
@@ -447,3 +473,41 @@ def list_exports() -> list:
         return []
     return sorted((p.name for p in [*EXPORT_DIR.glob("reelarr_audit_*.json"), *EXPORT_DIR.glob("barbosa_audit_*.json")]),
                   reverse=True)[:10]
+
+
+# ── One-time check (0.1.1): records the old learning pass mis-attached ───────
+
+_LEAD_PREFIX = re.compile(r"^([a-z][a-z&+]{1,14})[\s._-]*(?:19|20)?\d{2}[-._]?\d{2}[-._]?\d{2}", re.IGNORECASE)
+
+
+def flag_rebound_records() -> int:
+    """Before 0.1.1 the learning pass could attach a show you'd moved or
+    deleted to a different artist's show of the same date (toad1992-03-08 →
+    the Grateful Dead's 1992-03-08). Those records can't be put right
+    automatically, but they can be pointed out. Lists, in Activity, every
+    filed show whose original folder name starts with an artist prefix that
+    fits neither the artist it's now recorded as nor the folder it's bound to.
+    Nothing on disk is touched."""
+    found = 0
+    for row in db.list_shows(status="filed", limit=100000):
+        m = _LEAD_PREFIX.match(row["folder_name"] or "")
+        if not m:
+            continue
+        prefix = m.group(1).lower()
+        if prefix in ("sbd", "aud", "mtx", "fm", "live", "show", "the"):
+            continue
+        meta = json.loads(row["meta"] or "{}")
+        names = [meta.get("artist") or "", meta.get("host_artist") or ""]
+        bound = Path(row["filed_path"] or "")
+        bound_prefix = _LEAD_PREFIX.match(bound.name)
+        if any(sanity.names_related(prefix, n) for n in names if n):
+            continue
+        if bound_prefix and bound_prefix.group(1).lower() == prefix:
+            continue
+        found += 1
+        db.log("warn", "check", f"{row['folder_name']} is recorded as {names[1] or names[0]} at "
+               f"{bound.name} — the old learning pass may have attached it to another artist's show. "
+               "Check where this recording is; the record can be rejected from Shows.", row["id"])
+    if found:
+        db.log("warn", "check", f"{found} record(s) may be attached to the wrong show — see the entries above")
+    return found

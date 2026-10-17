@@ -176,22 +176,66 @@ def is_empty() -> bool:
 
 # ── Corrections: your fixes become rules ───────────────────────────
 
-def correction_set(kind: str, wrong: str, right):
+def correction_ok(kind: str, wrong: str, right) -> bool:
+    """Is this a rule worth keeping? An artist rule must be a respelling of
+    the same act ('Motorhead' → 'Motörhead'), not a different band ('Toad the
+    Wet Sprocket' → 'Grateful Dead'). A venue rule's city and state must be a
+    real place ('The Fillmore' → 'Benmont Tench - piano…, backing vocals' isn't)."""
+    from . import sanity
+    if kind == "artist":
+        return isinstance(right, str) and sanity.names_related(wrong, right)
+    if kind == "venue":
+        if not isinstance(right, dict) or not (right.get("venue") or "").strip():
+            return False
+        city, state = right.get("city") or "", right.get("state") or ""
+        if city and not sanity.plausible_city(city):
+            return False
+        if state and not sanity.valid_state(state):
+            return False
+        return not re.match(r"^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}", right["venue"].strip())
+    return True
+
+
+def correction_set(kind: str, wrong: str, right) -> bool:
     import json as _json
-    if not wrong or not right:
-        return
+    if not wrong or not right or not correction_ok(kind, wrong, right):
+        return False
     c = _conn()
     c.execute("INSERT INTO corrections (kind, wrong_norm, right) VALUES (?,?,?) "
               "ON CONFLICT(kind, wrong_norm) DO UPDATE SET right=excluded.right",
               (kind, _norm(wrong), _json.dumps(right)))
     c.commit()
+    return True
 
 
 def correction_get(kind: str, wrong: str):
     import json as _json
     r = _conn().execute("SELECT right FROM corrections WHERE kind=? AND wrong_norm=?",
                         (kind, _norm(wrong))).fetchone()
-    return _json.loads(r["right"]) if r else None
+    if not r:
+        return None
+    try:
+        right = _json.loads(r["right"])
+    except ValueError:
+        right = r["right"]                 # Barbosa stored plain text
+    return right if correction_ok(kind, wrong, right) else None     # a bad old rule is ignored
+
+
+def purge_bad_corrections() -> list:
+    """Remove stored rules that fail correction_ok. Returns what was removed."""
+    import json as _json
+    c = _conn()
+    gone = []
+    for r in c.execute("SELECT kind, wrong_norm, right FROM corrections").fetchall():
+        try:
+            right = _json.loads(r["right"])
+        except Exception:
+            right = r["right"]
+        if not correction_ok(r["kind"], r["wrong_norm"], right):
+            gone.append({"kind": r["kind"], "wrong": r["wrong_norm"], "right": right})
+            c.execute("DELETE FROM corrections WHERE kind=? AND wrong_norm=?", (r["kind"], r["wrong_norm"]))
+    c.commit()
+    return gone
 
 
 def corrections_list(kind: str = None):
