@@ -200,8 +200,36 @@ def _index_v1_baseline(c):
         c.execute(stmt)
 
 
+def _index_v2_bad_rules(c):
+    # Before 0.1.1 the learning tool could learn rules like "Toad the Wet
+    # Sprocket → Grateful Dead" or a venue whose city was a list of
+    # instruments. Remove every rule the new checks would refuse, and leave a
+    # list for Activity. (This file was backed up before this step ran.)
+    import json as _json
+    from .library_index import correction_ok
+    if not _has_table(c, "corrections"):
+        return
+    gone = []
+    for r in c.execute("SELECT kind, wrong_norm, right FROM corrections").fetchall():
+        try:
+            right = _json.loads(r["right"])
+        except Exception:
+            right = r["right"]         # Barbosa stored plain text
+        try:
+            ok = correction_ok(r["kind"], r["wrong_norm"], right)
+        except Exception:
+            ok = True              # can't judge it here: keep it
+        if not ok:
+            gone.append({"kind": r["kind"], "wrong": r["wrong_norm"], "right": right})
+            c.execute("DELETE FROM corrections WHERE kind=? AND wrong_norm=?", (r["kind"], r["wrong_norm"]))
+    if gone:
+        c.execute("CREATE TABLE IF NOT EXISTS idx_meta (k TEXT PRIMARY KEY, v TEXT)")
+        c.execute("INSERT OR REPLACE INTO idx_meta (k, v) VALUES ('removed_rules', ?)", (_json.dumps(gone),))
+
+
 INDEX_STEPS = [
     (1, "baseline (Barbosa schema)", _index_v1_baseline),
+    (2, "remove learned rules that can't be right", _index_v2_bad_rules),
 ]
 
 

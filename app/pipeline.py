@@ -24,7 +24,7 @@ from mutagen.flac import FLAC
 from mutagen.id3 import (ID3, ID3NoHeaderError, TIT2, TPE1, TPE2, TALB, TPOS,
                          TRCK, TDRC, TCON)
 
-from . import config, database as db, fileops, perms, sources, library_index, audioprobe
+from . import config, database as db, fileops, perms, sources, library_index, audioprobe, sanity
 from .metadata import (ShowMeta, AUDIO_EXTS, TAGGABLE_EXTS, parse_folder_name, read_embedded_tags, read_sidecar,
                        parse_best_info, parse_filenames,
                        clean_artist,
@@ -50,6 +50,30 @@ def _norm_words(s: str) -> set:
 
 
 # ── Artist canonicalization against the real library ────────────────────────
+
+_FOLDER_PREFIX = re.compile(r"^([a-z][a-z&+]{1,14})[\s._-]*(?:19|20)?\d{2}[-._]?\d{2}[-._]?\d{2}", re.IGNORECASE)
+
+
+def _prefix_owner(folder_name: str, artist: str, host: str, library_dir: Path):
+    """('toad', 'Toad the Wet Sprocket') when the folder's prefix fits another
+    artist in your library and not the one identified; else None."""
+    m = _FOLDER_PREFIX.match(folder_name or "")
+    if not m or not artist:
+        return None
+    prefix = m.group(1).lower()
+    if prefix in ("sbd", "aud", "mtx", "fm", "live", "show", "the") or \
+            any(sanity.names_related(prefix, x) for x in (artist, host) if x):
+        return None
+    try:
+        names = [d.name for d in library_dir.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))]
+    except OSError:
+        return None
+    for name in names:
+        n = _norm(name)
+        if prefix == n or prefix in sanity._initial_forms(name) or (len(prefix) >= 4 and n.startswith(prefix)):
+            return prefix, name
+    return None
+
 
 def canonical_artist(name: str, library_dir: Path, cfg: dict):
     """Map a parsed artist name onto an existing library folder.
@@ -642,6 +666,12 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
     info_meta, info_path = parse_best_info(show_dir, known_venues)
     folder_meta = parse_folder_name(show_dir.name, aliases)
     files_meta = parse_filenames(show_dir, aliases)
+    hold = []           # reasons this show must wait in Review, whatever the score
+
+    # "Track 01", file names and the like from the files' own tags don't get
+    # to outrank a real setlist from the info file or setlist.fm
+    if tags_meta.tracks and (_looks_unreliable(tags_meta.tracks) or _mass_tagged(tags_meta.tracks)):
+        tags_meta.tracks = []
 
     sidecar_meta = ShowMeta()
     if sidecar.get("official"):
@@ -651,9 +681,13 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
     if sidecar.get("shnid"):
         sidecar_meta.shnid = str(sidecar["shnid"])
 
-    # bootstrap artist/date for external lookups
+    # bootstrap artist/date for external lookups. The folder name's date is
+    # tried first: info files carry transfer and typo dates far more often
+    # than etree folder names carry wrong ones.
     boot_artist = (tags_meta.artist or info_meta.artist or folder_meta.artist)
-    boot_date = (tags_meta.date or info_meta.date or folder_meta.date)
+    boot_dates = list(dict.fromkeys(d for d in (
+        tags_meta.date if curated else "", folder_meta.date, info_meta.date, tags_meta.date) if d))
+    boot_date = boot_dates[0] if boot_dates else ""
 
     ia_meta, slf_meta = None, None
     src_cfg = cfg["sources"]
@@ -670,15 +704,19 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         boot_artist = ""
 
     if src_cfg["use_setlistfm"] and src_cfg["setlistfm_api_key"]:
-        if boot_artist and boot_date:
+        if boot_artist and boot_dates:
             slf_artist = aliases.get(_norm(boot_artist), boot_artist)
-            slf_meta = sources.fetch_setlistfm(
-                slf_artist, boot_date, src_cfg["setlistfm_api_key"])
-            if slf_meta:
-                log("info", "lookup", f"setlist.fm matched {slf_artist} {boot_date}")
-        if not slf_meta and boot_date:
-            # No artist (or artist unrecognized) — reverse lookup by city+date,
-            # confirmed against the venue name and our known track titles.
+            for d in boot_dates[:2]:          # the folder's date, then the info file's
+                slf_meta = sources.fetch_setlistfm(
+                    slf_artist, d, src_cfg["setlistfm_api_key"])
+                if slf_meta:
+                    log("info", "lookup", f"setlist.fm matched {slf_artist} {d}")
+                    break
+        if not slf_meta and boot_date and not boot_artist:
+            # No artist at all — reverse lookup by city+date, confirmed against
+            # the venue name and our known track titles. Never when the folder
+            # or info file names an artist: a different band playing that night
+            # isn't this recording.
             boot_venue = (info_meta.venue or tags_meta.venue or folder_meta.venue)
             boot_city = (info_meta.city or tags_meta.city or folder_meta.city)
             known_titles = [t["title"] for t in
@@ -707,6 +745,28 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
 
     merged, provenance, agreement = merge(ordered)
 
+    # ── the date (items 11–12): setlist.fm's confirmation wins; otherwise a
+    # date in the folder name beats one from an info file or loose tags
+    if slf_meta and slf_meta.date and provenance.get("date") != "sidecar":
+        if merged.date and merged.date != slf_meta.date:
+            log("info", "date", f"{provenance.get('date')} said {merged.date}; setlist.fm confirms {slf_meta.date}")
+        merged.date = slf_meta.date
+        provenance["date"] = "setlistfm"
+    elif folder_meta.date and merged.date and merged.date != folder_meta.date \
+            and provenance.get("date") not in ("sidecar", "curated_tags", "folder_name"):
+        log("info", "date", f"the {provenance.get('date', 'info file').replace('_', ' ')} says {merged.date}, "
+            f"the folder name says {folder_meta.date} — using the folder's")
+        merged.date = folder_meta.date
+        provenance["date"] = "folder_name"
+
+    # ── SHNID (19): the folder name names this exact recording; an info file
+    # often cites the one it was derived from
+    if folder_meta.shnid and merged.shnid and folder_meta.shnid.lstrip("0") != merged.shnid.lstrip("0") \
+            and provenance.get("shnid") not in ("sidecar", "folder_name"):
+        log("info", "shnid", f"info file cites {merged.shnid}; the folder is {folder_meta.shnid} — using the folder's")
+        merged.shnid = folder_meta.shnid
+        provenance["shnid"] = "folder_name"
+
     if src_cfg["use_musicbrainz_genre"] and merged.artist and not merged.genre:
         merged.genre = sources.fetch_mb_genre(merged.artist)
 
@@ -715,6 +775,24 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         merged.artist = ""
         provenance.pop("artist", None)
     merged.state = normalise_state(merged.state)
+
+    # ── the folder name's artist vs an info file's or loose tags' (item 7)
+    fa = folder_meta.artist if plausible_artist(folder_meta.artist) else ""
+    if not merged.artist and fa:
+        merged.artist, provenance["artist"] = fa, "folder_name"
+    elif fa and merged.artist and provenance.get("artist") in ("info_file", "tags", "filenames") \
+            and not sanity.names_related(fa, merged.artist):
+        lib = Path(cfg["paths"]["library_dir"])
+        fa_in = canonical_artist(fa, lib, cfg)[1]
+        ma_in = canonical_artist(merged.artist, lib, cfg)[1]
+        said = provenance["artist"].replace("_", " ")
+        if fa_in and not ma_in:
+            log("info", "artist", f"the {said} says {merged.artist!r}; the folder name says {fa!r} — using the folder's")
+            merged.artist, provenance["artist"] = fa, "folder_name"
+        else:
+            hold.append(f"the folder name says {fa}, the {said} says {merged.artist}")
+            if not ma_in:
+                merged.artist, provenance["artist"] = fa, "folder_name"
 
     # apply your learned corrections (from past manual fixes)
     if merged.artist:
@@ -726,10 +804,15 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         vfix = library_index.correction_get("venue", merged.venue)
         if vfix:
             merged.venue = vfix.get("venue", merged.venue)
-            if vfix.get("city"):
+            # where the city and state came from your own album tags, a nugs
+            # sidecar or setlist.fm, a learned venue rule doesn't overrule them
+            trusted = {"curated_tags", "sidecar", "setlistfm"}
+            if vfix.get("city") and provenance.get("city") not in trusted:
                 merged.city = vfix["city"]
-            if vfix.get("state"):
+                provenance["city"] = "corrected"
+            if vfix.get("state") and provenance.get("state") not in trusted:
                 merged.state = vfix["state"]
+                provenance["state"] = "corrected"
             provenance["venue"] = "corrected"
 
     # text hygiene on everything that ends up in tags and folder names
@@ -839,7 +922,8 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
 
     # a setlist.fm-confirmed artist overrides a weak local guess it contradicts
     if not in_library and slf_meta and slf_meta.artist \
-            and _norm(slf_meta.artist) != _norm(merged.artist):
+            and _norm(slf_meta.artist) != _norm(merged.artist) \
+            and (not merged.artist or sanity.names_related(slf_meta.artist, merged.artist)):
         c2, h2 = canonical_artist(clean_artist(slf_meta.artist), library_dir, cfg)
         if h2:
             merged.artist, in_library = c2, True
@@ -852,6 +936,13 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         provenance["host_artist"] = "collab-split"
     in_library = in_library or host_in_lib
 
+    # ── safety net (item 10): the folder's own prefix ('toad', 'mmj') belongs
+    # to a different artist in your library than the one identified
+    other = _prefix_owner(show_dir.name, merged.artist, merged.host_artist, library_dir)
+    if other:
+        hold.append(f"the folder name starts '{other[0]}' ({other[1]}), but this was identified as "
+                    f"{merged.host_artist or merged.artist}")
+
     # source-of-truth hierarchy for the source type:
     #   1. sidecar / curated bracket / explicit "Source:" line — authoritative
     #   2. a source token in the FOLDER NAME — definitive when present
@@ -861,7 +952,11 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
     explicit = (src_prov in ("sidecar", "curated_tags")
                 or (src_prov == "info_file"
                     and getattr(info_meta, "source_explicit", False)))
-    if not explicit:
+    if folder_meta.source_type == "MTX" and merged.source_type in ("SBD", "AUD") \
+            and src_prov not in ("sidecar", "curated_tags"):
+        merged.source_type = "MTX"              # 'matrix' in the name: SBD + AUD mixed
+        provenance["source_type"] = "folder_name"
+    elif not explicit:
         folder_src = folder_meta.source_type    # token found in the folder name
         if folder_src:
             if folder_src != merged.source_type:
@@ -890,6 +985,26 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         log("info", "listen", probe["detail"]
             + (f" → {probe['source_type']}" if probe["source_type"] else ""))
 
+    # ── last look (items 13–17): a value that can't be right is dropped, so the
+    # show waits in Review for it rather than being filed with junk
+    if merged.venue and not sanity.plausible_venue(merged.venue):
+        log("info", "venue", f"dropped {merged.venue!r} — doesn't look like a venue")
+        merged.venue = ""
+        provenance.pop("venue", None)
+    if merged.city and not sanity.plausible_city(merged.city):
+        log("info", "venue", f"dropped city {merged.city!r}")
+        merged.city = ""
+        provenance.pop("city", None)
+    if merged.state and not sanity.valid_state(merged.state):
+        from . import places
+        st = places.resolve(merged.city, "") if merged.city else ""
+        if not sanity.valid_state(st):
+            log("info", "venue", f"dropped state {merged.state!r}")
+        merged.state = st if sanity.valid_state(st) else ""
+    release = getattr(tags_meta, "release_title", "")
+    if release and not (folder_meta.date or info_meta.date):
+        hold.append(f"the album tag '{release}' looks like an official album, not a live recording")
+
     external_confirmed = bool(slf_meta or ia_meta)
     artist_strong = bool(merged.artist) and (
         in_library or curated or bool(sidecar.get("official"))
@@ -903,6 +1018,7 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
             "missing": missing, "curated": curated, "sidecar": sidecar,
             "artist_in_library": in_library,
             "titles_uncertain": titles_uncertain,
+            "hold": hold,
             "alignment": ({"how": alignment["how"], "extras": alignment["extras"]}
                           if alignment else None)}
 
@@ -1425,6 +1541,9 @@ def process_show(show_dir: Path) -> dict:
         if titles_uncertain and cfg["filing"].get("hold_uncertain_titles", True):
             needs_review = True
             note = f"Titles need a look: {titles_uncertain}"
+        if result.get("hold"):
+            needs_review = True
+            note = "; ".join(x for x in [note, "Check this: " + "; ".join(result["hold"])] if x)
 
         if dupe:
             policy = cfg["filing"]["duplicate_policy"]

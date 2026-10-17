@@ -35,7 +35,37 @@ def init():
             log("info", "system",
                 f"upgraded {r['store']} v{r['from']} → v{r['to']}"
                 + (f" (backup: {r['backup']})" if r.get("backup") else ""))
+    _report_upgrade_cleanups()
     return reports
+
+
+def _report_upgrade_cleanups():
+    """Say in Activity what an upgrade tidied up, once."""
+    import json as _json
+    try:
+        from . import library_index
+        ic = library_index._conn()
+        r = ic.execute("SELECT v FROM idx_meta WHERE k='removed_rules'").fetchone()
+        if r:
+            gone = _json.loads(r["v"])
+            log("warn", "learned", f"removed {len(gone)} learned rule(s) that couldn't be right — "
+                "each is listed below; the old rules are in the library_index backup")
+            for g in gone:
+                right = g["right"]
+                if isinstance(right, dict):
+                    right = ", ".join(x for x in (right.get("venue"), right.get("city"), right.get("state")) if x)
+                log("info", "learned", f"removed {g['kind']} rule: {g['wrong']} → {right}")
+            ic.execute("DELETE FROM idx_meta WHERE k='removed_rules'")
+            ic.commit()
+    except Exception as e:
+        log("warn", "system", f"couldn't report removed rules: {e}")
+    if not kv_get("rebound_check_v1"):
+        try:
+            from . import audit
+            audit.flag_rebound_records()
+        except Exception as e:
+            log("warn", "system", f"couldn't check for mis-attached records: {e}")
+        kv_set("rebound_check_v1", "1")
 
 
 # ── Shows ─────────────────────────────────────────────────────────────────────
