@@ -555,6 +555,90 @@ def sanitize_location(meta: "ShowMeta") -> None:
         left, right = [x.strip() for x in meta.venue.split(" - ", 1)]
         if left and right:
             meta.venue, meta.city = left, right
+    _tidy_location(meta)
+
+
+_KEEP_CAPS = {"FM", "AM", "TV", "BBC", "SPAC", "UK", "USA", "NYC", "DC", "II", "III", "IV", "UIC",
+              "UCLA", "USC", "PNC", "DTE", "MTS", "HOB", "CBGB", "YMCA", "VFW", "KC", "LA", "SF", "NY",
+              "UNO", "MSG", "CNE", "PAC", "SNL", "NPR", "WFUV", "KCRW", "KFOG", "KPFK", "WXRT", "WNEW",
+              "WBCN", "WMMR", "WHFS", "KSAN", "KBCO"}
+_SMALL_TITLE = {"of", "the", "and", "at", "in", "on", "for", "a", "an", "de", "la", "du"}
+
+
+def smart_title(s: str) -> str:
+    """'THE PAGEANT THEATRE' → 'The Pageant Theatre', 'ST. LOUIS' → 'St. Louis',
+    keeping call signs and acronyms: 'WXRT 93.1 FM', 'BBC RADIO 2' → 'BBC Radio 2'."""
+    out = []
+    for i, w in enumerate(s.split(" ")):
+        core = re.sub(r"[^A-Za-z]", "", w)
+        if not core or re.fullmatch(r"(?:[A-Z]\.)+[A-Z]?\.?", w) or w.upper() in _KEEP_CAPS or core.upper() in _KEEP_CAPS \
+                or re.match(r"^[KWC][A-Z]{2,3}$", core) or any(ch.isdigit() for ch in w):
+            out.append(w)
+        elif i and w.lower() in _SMALL_TITLE:
+            out.append(w.lower())
+        else:
+            t = "-".join(x[:1].upper() + x[1:].lower() for x in w.split("-"))
+            t = re.sub(r"(?<=[A-Za-z])'([A-Za-z])(?=[A-Za-z])", lambda m: "'" + m.group(1).upper(), t)   # O'Brien
+            out.append(t)
+    return " ".join(out)
+
+
+def _tidy_location(meta: "ShowMeta") -> None:
+    """Venue junk the older rules let through (from the 2026-10 audit report)."""
+    from . import sanity
+    v = meta.venue or ""
+    # leading short dates: "75-06-06", "06/14/08 (Sat)"
+    v = re.sub(r"^\s*\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\s*(?:\((?:mon|tue|wed|thu|fri|sat|sun)\w*\))?\s*[,\-\u2013]*\s*",
+               "", v, flags=re.IGNORECASE)
+    v = re.sub(r"^\s*\d{4,7}[.\s]+(?=[A-Za-z])", "", v)                      # "175488.John Cipollina's…"
+    v = re.sub(r"(?:[\s.]+(?:flac\d*|shnf?|mp3|wav|sbeok|t-?flac\d*|16bit|24bit|sbd|aud|mtx|dsbd))+\s*$",
+               "", v, flags=re.IGNORECASE)                                      # "Folk Scene KPFK FM Flac16"
+    if sanity.is_source_word(v) or re.fullmatch(r"[a-z]{12,}", v):     # 'sbd24', 'greektheaterlaca'
+        v = ""
+    # the city repeated on the end: "House Of Blues - Chicago", "Dane County
+    # Coliseum, Madison, Wisconsin", "Masonic Temple Scranton PA"
+    if v and meta.city:
+        from . import places
+        cities = {meta.city}
+        if n_(meta.city) in ("newyork", "newyorkcity"):
+            cities |= {"NYC", "N.Y.C.", "New York City", "New York"}
+        states = {x for x in (meta.state, places.US_STATES.get((meta.state or "").upper()),
+                              places.CA_PROVINCES.get((meta.state or "").upper())) if x}
+        st_alt = "|".join(re.escape(x) for x in sorted(states, key=len, reverse=True))
+        for c in sorted(cities, key=len, reverse=True):
+            tail = (r"(?:\s*[-\u2013,]\s*|\s{2,})" + re.escape(c) + (rf"(?:\s*,?\s*(?:{st_alt}))?" if st_alt else "")
+                    + r"\s*$")
+            v2 = re.sub(tail, "", v, flags=re.IGNORECASE)
+            if v2 == v and st_alt:          # plain space only when the state follows too
+                v2 = re.sub(r"\s+" + re.escape(c) + rf"\s*,?\s*(?:{st_alt})\s*$", "", v, flags=re.IGNORECASE)
+            if v2 != v and len(v2.strip(" ,-")) >= 3:
+                v = v2
+                break
+    meta.venue = v.strip(" ,-\u2013")
+    for f in ("venue", "city"):
+        val = getattr(meta, f) or ""
+        if len(re.sub(r"[^A-Za-z]", "", val)) > 3 and val == val.upper():
+            setattr(meta, f, smart_title(val))
+    # state: one that just repeats the city, or carries a stray tail ("MI rm",
+    # "MN - First Avenue Club")
+    st = (meta.state or "").strip()
+    m2 = re.match(r"^([A-Z]{2})\s+[-\u2013]\s+(.{3,})$", st)
+    if m2:
+        st = meta.state = m2.group(1)
+        if not meta.venue:
+            meta.venue = re.sub(r"\s*\([^)]*\)\s*$", "", m2.group(2)).strip()
+    if st and n_(st) == n_(meta.city):
+        meta.state = ""
+    else:
+        m = re.match(r"^([A-Za-z]{2})[\s.,]+[A-Za-z]{1,4}$", st)
+        if m and m.group(1).upper() not in ("UK",):
+            from . import places
+            if m.group(1).upper() in places.US_STATES or m.group(1).upper() in places.CA_PROVINCES:
+                meta.state = m.group(1).upper()
+
+
+def n_(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
 # ── Album-string parser ──────────────────────────────────────────────────────
@@ -628,8 +712,12 @@ def parse_album_string(album: str) -> tuple:
         r"^\w{0,24}?(19|20)\d{2}[-/._]\d{1,2}[-/._]\d{1,2}$",
         re.IGNORECASE)
     parts = [x for x in parts if not _junk_part.match(x.strip())]
-    # full US state names → codes so "Ohio" and "OH" dedupe against each other
-    parts = [_US_STATES.get(x.strip().strip(".").lower(), x) for x in parts]
+    # full US state names → codes so "Ohio" and "OH" dedupe against each other —
+    # except a city that's followed by its state: "New York, NY", "Washington, DC"
+    def _is_state(x):
+        return bool(re.fullmatch(r"[A-Z]{2}\.?", x.strip())) or x.strip().strip(".").lower() in _US_STATES
+    parts = [x if (i + 1 < len(parts) and _is_state(parts[i + 1]))
+             else _US_STATES.get(x.strip().strip(".").lower(), x) for i, x in enumerate(parts)]
     # global keep-first de-duplication: catches "Cleveland, OH, Cleveland, OH"
     # and non-adjacent repeats like "…, Madison, WI, …, Madison, WI"
     seen, dedup = set(), []
@@ -728,11 +816,16 @@ def read_embedded_tags(show_dir: Path) -> tuple:
     album = tag("album")
     if album:
         album_meta, complete = parse_album_string(album)
-        curated = complete
+        curated = complete and _trust_album(album_meta, show_dir)
+        located = bool(album_meta.date and (album_meta.venue or album_meta.city) and "," in album)
         for f in ("date", "venue", "city", "state", "source_type",
                   "official", "shnid", "recorder"):
+            if f in ("venue", "city", "state") and not (curated or located):
+                continue      # 'Orgasmatron (Expanded Edition)' is an album title, not a venue
             if not getattr(meta, f) and getattr(album_meta, f):
                 setattr(meta, f, getattr(album_meta, f))
+        if not curated and not album_meta.date and "," not in album and not extract_date(album):
+            meta.release_title = album
 
     # collect track titles for later (never used to overwrite good titles)
     for i, p in enumerate(audio, 1):
@@ -756,6 +849,26 @@ def read_embedded_tags(show_dir: Path) -> tuple:
     if titles:
         meta.tracks = titles
     return meta, curated, titles
+
+
+def _trust_album(album_meta: "ShowMeta", show_dir: Path) -> bool:
+    """A complete-looking album string is only 'yours' (trusted over every
+    other source) if its place is real and it agrees with the folder name.
+    '(this is the setlist, thanks to roryglzep, but' parses as complete; so does
+    a tag copied from a different transfer (jg1977-12-06 tagged 2007-03-27)."""
+    from . import sanity
+    if not (sanity.plausible_venue(album_meta.venue) and sanity.plausible_city(album_meta.city)):
+        return False
+    from . import places
+    st = album_meta.state
+    if not sanity.valid_state(st) and not sanity.valid_state(places.resolve(album_meta.city, st)):
+        return False
+    folder = parse_folder_name(show_dir.name, {})
+    if folder.date and album_meta.date and folder.date != album_meta.date:
+        return False
+    if folder.shnid and album_meta.shnid and folder.shnid.lstrip("0") != album_meta.shnid.lstrip("0"):
+        return False
+    return True
 
 
 # ── Info-file parser (adapted from bootleg_tagger) ───────────────────────────
@@ -802,7 +915,48 @@ def plausible_artist(name: str) -> bool:
                  r"audacity|cool edit|sound ?forge|cd ?wave|trader'?s little helper|"
                  r"flac frontend|dbpoweramp|audiochecker)\b", n, re.IGNORECASE):
         return False   # ripping/tagging tool signatures
-    return re.sub(r"[^a-z ]", "", n.lower()).strip() not in _JUNK_ARTIST_VALUES
+    if re.sub(r"[^a-z ]", "", n.lower()).strip() in _JUNK_ARTIST_VALUES:
+        return False
+    return not _sentence_not_artist(n)
+
+
+_ARTIST_BOILERPLATE = re.compile(
+    r"\b(shared by|generated|banned|don'?t modify|tribute|thanks?|uploaded|seeded|torrents?|"
+    r"lineage|recorded by|transferred|artwork|setlist|info file|edited by|mastered by|"
+    r"reward|faults?|checked|re-?seed|better than nothing|this is|courtesy|a\.k\.a)\b",
+    re.IGNORECASE)
+
+
+def _sentence_not_artist(n: str) -> bool:
+    """Info-file lines that aren't band names: labels ('faults: none'),
+    sentences ('Banned tracks removed.'), places ('Santa Monica, California.'),
+    dated lines, filenames ('Gregg Allman1986-04-15.nak300…') and boilerplate."""
+    if re.search(r"[:;\x00]", n) or n[:1] in "'\"(“‘[-*#":
+        return True
+    words = n.split()
+    lower = [w for w in words if w[:1].islower() and w.lower() not in ("and", "of", "the", "with", "y", "&", "de", "la", "von")]
+    if len(words) > 9 or (len(words) > 5 and len(lower) >= 2):
+        return True
+    if re.search(r"\b(?:19|20)\d\d\b", n) and re.search(
+            r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b", n, re.IGNORECASE):
+        return True
+    if len(words) >= 3 and n[:1].islower():
+        return True
+    if n[-1] in "!?" or (n.endswith(".") and len(re.sub(r"[^A-Za-z]", "", words[-1])) > 4
+                          and not re.search(r"(?:\b[A-Za-z]\.){2,}$", n)):
+        return True
+    if extract_date(n) or re.search(r"\b\d{1,2}:\d{2}\b|[A-Za-z](?:19|20)\d\d|\.\w+\d{2,}\.", n):
+        return True
+    if _ARTIST_BOILERPLATE.search(n):
+        return True
+    parts = [x.strip(" .") for x in n.split(",")]
+    if 2 <= len(parts) <= 3:
+        from . import places
+        last = parts[-1]
+        if last.upper() in places.US_STATES or last.upper() in places.CA_PROVINCES \
+                or last.lower() in _US_STATES or places.is_country(last):
+            return True
+    return False
 
 
 _LIVE_TAIL_RE = re.compile(
@@ -940,10 +1094,83 @@ def _strict_venue_line(s: str, known_venues: frozenset) -> bool:
     return bool(_VENUE_KEYWORDS.search(s) and re.search(r",\s*[A-Z]{2}\.?$", s))
 
 
+
+def read_info_text(path: Path) -> str:
+    """An info file's text: UTF-16 files decoded (not read as 'D\x00O\x00N…'),
+    and HTML — archive.org descriptions are <div>…</div> — turned into lines."""
+    data = path.read_bytes()
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff") or (len(data) > 8 and data[:200].count(b"\x00") > len(data[:200]) // 4):
+        enc = "utf-16" if data[:2] in (b"\xff\xfe", b"\xfe\xff") else (
+            "utf-16-le" if data[1:2] == b"\x00" else "utf-16-be")
+        text = data.decode(enc, errors="replace")
+    else:
+        text = data.decode("utf-8", errors="replace")
+    if re.search(r"<(div|br|p|span|font|b|i|li|ul)\b[^>]*>", text, re.IGNORECASE):
+        import html as _html
+        text = re.sub(r"<\s*br\s*/?\s*>|</\s*(div|p|li)\s*>|<\s*(div|p|li)\b[^>]*>", "\n", text,
+                      flags=re.IGNORECASE)
+        text = _html.unescape(re.sub(r"<[^>]+>", "", text))
+    return text.replace("\x00", "")
+
+
+# lines whose date is about the file, not the show
+_NOT_SHOW_DATE = re.compile(
+    r"\b(generated|created|transferr?ed|transfer|uploaded|upload|ripped|seeded|torrent|edited|"
+    r"remaster\w*|converted|encoded|verified|checksums?|md5|ffp|shntool|patched|fixed|"
+    r"re-?seed\w*|date of|tagged|compiled|last (?:modified|updated)|posted|downloaded)\b",
+    re.IGNORECASE)
+
+_TRAILING_DATE = re.compile(
+    r"[\s,\-–]+(?:\d{1,2}[/.\-]\d{1,2}\*?[/.\-]\d{2,4}|(?:19|20)\d\d[-./]\d{1,2}[-./]\d{1,2})\s*$")
+
+
+def _location_line(s: str):
+    """(venue, city, state) from the location-line layouts that don't fit
+    'Venue / City, ST':  'Newport, RI @ Ft. Adams State Park - Newport Jazz
+    Fest - Quad Stage' · 'Toronto, ON  --  Massey Hall' · 'Recorded live at The
+    Grande Ballroom, Detroit (MI), United States, October 15, 1967'."""
+    from . import sanity
+    t = s.strip()
+    recorded = re.match(r"^(?:recorded\s+)?(?:live\s+)?(?:at|@)\s+", t, re.IGNORECASE)
+    if not (recorded or "@" in t or re.search(r"\s-{2,}\s", t)):
+        return None
+    if recorded:
+        t = t[recorded.end():]
+    t = re.sub(r",?\s*(?:on\s+)?(?:[A-Z][a-z]+\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|"
+               r"\d{1,2}/\d{1,2}/\d{2,4}|(?:19|20)\d\d-\d\d-\d\d)\s*$", "", t)
+    t = re.sub(r"\s*\(([A-Z]{2})\)", r", \1", t)
+    t = re.sub(r",\s*(?:united states|usa|u\.s\.a\.?)\s*(?=,|$)", "", t, flags=re.IGNORECASE)
+
+    def place(x):
+        parts = [p.strip() for p in x.split(",") if p.strip()]
+        if len(parts) >= 2 and sanity.valid_state(normalise_state(parts[-1])) and sanity.plausible_city(parts[-2]):
+            return ", ".join(parts[:-2]), parts[-2], normalise_state(parts[-1])
+        return None
+
+    if "@" in t:
+        left, right = [x.strip() for x in t.split("@", 1)]
+        loc = place(left)
+        venue = re.split(r"\s+[-–]\s+", right)[0].strip(" ,")
+        if loc and venue:
+            return venue, loc[1], loc[2]
+        return None
+    sides = re.split(r"\s+-{2,}\s+", t)
+    if len(sides) == 2:
+        for a, b in (sides, sides[::-1]):
+            loc = place(a)
+            if loc and b.strip():
+                return b.strip(), loc[1], loc[2]
+        return None
+    loc = place(t)
+    if loc and loc[0]:
+        return loc
+    return None
+
+
 def parse_info_file(path: Path, known_venues: frozenset = frozenset()) -> ShowMeta:
     meta = ShowMeta()
     try:
-        raw_text = path.read_text(errors="replace")
+        raw_text = read_info_text(path)
         lines = raw_text.splitlines()
     except Exception:
         return meta
@@ -955,8 +1182,10 @@ def parse_info_file(path: Path, known_venues: frozenset = frozenset()) -> ShowMe
         s = line.strip()
         if not s:
             continue
-        if not meta.date:
-            meta.date = extract_date(s)
+        if not meta.date and not _NOT_SHOW_DATE.search(s):
+            d = extract_date(s)
+            if d and d <= _dt.date.today().isoformat():     # a future date isn't a show that happened
+                meta.date = d
         src = _SOURCE_RE.match(s)
         if src:
             raw = src.group(1).strip()
@@ -1010,10 +1239,18 @@ def parse_info_file(path: Path, known_venues: frozenset = frozenset()) -> ShowMe
                 if len(parts) >= 2 and not meta.city:
                     meta.city, meta.state = parts[-2], normalise_state(parts[-1])
             continue
-        if not meta.artist and len(s) < 60 and plausible_artist(s) \
-                and not _strict_venue_line(s, known_venues) \
-                and not _PURE_CITY_RE.match(s):
-            meta.artist = s
+        if not meta.venue:
+            loc = _location_line(s)
+            if loc:
+                meta.venue = loc[0]
+                if not meta.city:
+                    meta.city, meta.state = loc[1], loc[2]
+                continue
+        cand = _TRAILING_DATE.sub("", s).strip()       # "TOAD THE WET SPROCKET 3/8/92"
+        if not meta.artist and len(cand) < 60 and plausible_artist(cand) \
+                and not _strict_venue_line(cand, known_venues) \
+                and not _PURE_CITY_RE.match(cand):
+            meta.artist = cand
             continue
         if not meta.venue and (_VENUE_KEYWORDS.search(s)
                                or re.sub(r"[^a-z0-9]", "", s.lower()) in known_venues):
@@ -1070,13 +1307,20 @@ def parse_info_file(path: Path, known_venues: frozenset = frozenset()) -> ShowMe
         meta.source_type = inferred
         if not meta.source_explicit:
             meta.source_inferred = True
+    # a song from this very setlist isn't the artist ("Hurts So Good", "Rank Stranger")
+    if meta.artist and any(_norm_key(t["title"]) == _norm_key(meta.artist) for t in meta.tracks):
+        meta.artist = ""
     return meta
+
+
+def _norm_key(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
 # ── Folder-name parsers ──────────────────────────────────────────────────────
 
 _ETREE_RE = re.compile(
-    r"^([a-zA-Z][a-zA-Z\- ]*?)[-_.]?(\d{4}|\d{2})[-._](\d{2})[-._](\d{2})\b")
+    r"^([a-zA-Z][a-zA-Z\-. ]*?)[-_.]?(\d{4}|\d{2})[-._](\d{2})[-._](\d{2})(?!\d)")
 _SKIP_TOKENS = re.compile(
     r"^(sbd|aud|matrix|mtx|fm|flac|flac16|flac24|shnf?|mp3|ogg|"
     r"set[12]|d[12]|t-?flac|sbeok|sbefail|unknown|complete|"
@@ -1113,9 +1357,15 @@ def parse_folder_name(folder_name: str, aliases: dict) -> ShowMeta:
         meta.date = extract_date(name)
         return meta
 
-    raw_artist = m.group(1).replace("-", " ").replace("_", " ").strip()
+    raw_artist = re.sub(r"(?<=[A-Za-z]{2})\.(?=[A-Za-z]{2})", " ", m.group(1))   # Frank.Zappa
+    raw_artist = raw_artist.replace("-", " ").replace("_", " ").strip(" .")
     key = re.sub(r"[^a-z0-9]", "", raw_artist.lower())
-    meta.artist = aliases.get(key, raw_artist.title() if raw_artist else "")
+    if raw_artist and raw_artist != raw_artist.lower() and raw_artist != raw_artist.upper():
+        # CamelCase keeps its capitals: 'EmmylouHarris' → 'Emmylou Harris', 'DelMcCoury' → 'Del McCoury'
+        pretty = re.sub(r"(?<=[a-z])(?<!Mc)(?<!Mac)(?=[A-Z])", " ", raw_artist)
+    else:
+        pretty = raw_artist.title()
+    meta.artist = aliases.get(key, pretty if raw_artist else "")
 
     year = m.group(2)
     if len(year) == 2:
@@ -1125,9 +1375,11 @@ def parse_folder_name(folder_name: str, aliases: dict) -> ShowMeta:
     remainder = name[m.end():].lstrip("-_. ")
 
     if "." in remainder and "," not in remainder:
-        # etree dot fields: source.taper.shnid.filetype
+        # etree dot fields: source.taper.shnid.filetype — and sometimes a city
+        # ("Isaak1991-09-22.Toronto.FM", "Frank.Zappa.1988.05.01.Stockholm.SE")
         recorder_candidates = []
-        for fld in (f for f in remainder.split(".") if f):
+        fields = [f for f in remainder.split(".") if f]
+        for i, fld in enumerate(fields):
             if not meta.source_type and normalise_source_type(fld):
                 meta.source_type = normalise_source_type(fld)
                 continue
@@ -1135,6 +1387,13 @@ def parse_folder_name(folder_name: str, aliases: dict) -> ShowMeta:
                 meta.shnid = _pad_shnid(fld)
                 continue
             if _SKIP_TOKENS.match(fld):
+                continue
+            city = _big_city(fld) if not meta.city else ""
+            if city:
+                meta.city = city
+                nxt = fields[i + 1] if i + 1 < len(fields) else ""
+                if re.fullmatch(r"[A-Za-z]{2}", nxt) and not normalise_source_type(nxt):
+                    meta.state = nxt.upper()
                 continue
             if re.match(r"^[a-zA-Z][a-zA-Z\-']{1,}$", fld):
                 recorder_candidates.append(fld)
@@ -1158,6 +1417,26 @@ def parse_folder_name(folder_name: str, aliases: dict) -> ShowMeta:
                     meta.source_type = normalise_source_type(fld)
                 elif not meta.shnid and re.match(r"^\d{4,7}$", fld):
                     meta.shnid = _pad_shnid(fld)
+        # leading dot-fields before the place: "139205.Bodega,CA", "sbd.Paris, FR"
+        while "." in loc_part:
+            head, rest = loc_part.split(".", 1)
+            if re.match(r"^\d{4,7}$", head):
+                meta.shnid = meta.shnid or _pad_shnid(head)
+            elif normalise_source_type(head) and len(head) <= 6:
+                meta.source_type = meta.source_type or normalise_source_type(head)
+            else:
+                break
+            loc_part = rest.strip()
+        # dotted junk after the state: "Asheville, NC.Shure.km140" · "NY.Early.Edirol"
+        loc_part = re.sub(r"(,\s*[A-Za-z]{2})\.[A-Za-z].*$", r"\1", loc_part)
+        # source notes in brackets: "Paris, France (FM, Black Session)" · "(U.S.A.)"
+        loc_part = re.sub(r"\s*\((?:[^()]*\b(?:fm|sbd|aud|pre-?fm|soundboard|master|flac\d*|u\.?s\.?a\.?|"
+                          r"broadcast|session)\b[^()]*)\)", "", loc_part, flags=re.IGNORECASE).strip()
+        # "De Doelen.Rotterdam,NL" — before the first comma, a dot between words
+        # is a separator (but not after St./Mt./Ft.)
+        head, sep, rest = loc_part.partition(",")
+        head = re.sub(r"(?<!\b[SMF]t)(?<=[a-z])\.(?=[A-Z])", ", ", head)
+        loc_part = head + sep + rest
         loc, _ = parse_album_string(loc_part)
         if loc.venue and _SKIP_TOKENS.match(loc.venue.replace(" ", "")):
             loc.venue = ""           # format tokens (flac16, shnf...) aren't venues
@@ -1166,6 +1445,19 @@ def parse_folder_name(folder_name: str, aliases: dict) -> ShowMeta:
                 and not _SKIP_TOKENS.match(loc_part.replace(" ", "")):
             meta.venue = loc_part
     return meta
+
+
+def _big_city(field: str) -> str:
+    """'Toronto' → 'Toronto', 'StLouis' → 'St. Louis', 'NewHaven' → 'New Haven'
+    — only for cities big enough (100k+) that a taper's name is unlikely to
+    collide ('Miller' is a town of 1,437 in South Dakota)."""
+    if not re.fullmatch(r"[A-Z][a-z]+(?:[A-Z][a-z]+){0,2}", field):
+        return ""
+    name = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", field)
+    name = re.sub(r"^St ", "St. ", name)
+    from . import places
+    hits = places.places_named(name)
+    return name if hits and hits[0][2] >= 100_000 else ""
 
 
 # ── Filename source ──────────────────────────────────────────────────────────
