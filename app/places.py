@@ -233,6 +233,11 @@ def resolve(city: str, state: str) -> str:
     _load()
     city = (city or "").strip()
     raw = (state or "").strip().strip(".").strip()
+    if raw and city and fold(raw) == fold(city):
+        raw = ""                         # 'Boston, Boston' says nothing about the state
+    m = re.match(r"^([A-Za-z]{2})\.[A-Za-z]{1,4}$", raw)
+    if m:
+        raw = m.group(1)                 # 'BE.VB' (Belgium, Vlaams-Brabant) → 'BE'
     hits = places_named(city) if city else []
 
     if raw:
@@ -250,7 +255,16 @@ def resolve(city: str, state: str) -> str:
                 inside = [h for h in hits if h[0] == cc]
                 d = _dominant(inside)
                 return _place_tag(*d) if d else ""
-            return up if (up in US_STATES or up in CA_PROVINCES) else raw
+            if up in US_STATES or up in CA_PROVINCES:
+                return up
+            if cc in _country_name and not hits:
+                return country_name(cc)      # a small town we don't list: 'Werchter, BE'
+            # a code that's neither ('Basel, BS' — a Swiss canton): the
+            # country, if the city is clearly abroad
+            d = _dominant([h for h in hits if h[0] not in ("US", "CA", "PR")], ratio=3)
+            if d and not any(h[0] in ("US", "CA", "PR") for h in hits[:1]):
+                return country_name(d[0])
+            return raw
         if f in _state_name:
             return _state_name[f]
         cc = _country_alias.get(f)

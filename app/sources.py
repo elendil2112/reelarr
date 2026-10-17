@@ -133,13 +133,13 @@ def fetch_setlistfm(artist: str, date: str, api_key: str, timeout: int = 12):
     meta.state = _setlistfm_state(city)
 
     n = 0
-    for s in sl.get("sets", {}).get("set", []):
+    for set_no, s in enumerate(sl.get("sets", {}).get("set", []), 1):
         disc = 99 if s.get("encore") else 1
         for song in s.get("song", []):
             name = song.get("name", "").strip()
             if name:
                 n += 1
-                meta.tracks.append({"num": n, "title": name, "disc": disc})
+                meta.tracks.append({"num": n, "title": name, "disc": disc, "set": set_no})
     return meta
 
 
@@ -168,13 +168,13 @@ def _slf_result_to_meta(sl) -> ShowMeta:
     meta.city = city.get("name", "")
     meta.state = _setlistfm_state(city)
     n = 0
-    for s in sl.get("sets", {}).get("set", []):
+    for set_no, s in enumerate(sl.get("sets", {}).get("set", []), 1):
         disc = 99 if s.get("encore") else 1
         for song in s.get("song", []):
             name = song.get("name", "").strip()
             if name:
                 n += 1
-                meta.tracks.append({"num": n, "title": name, "disc": disc})
+                meta.tracks.append({"num": n, "title": name, "disc": disc, "set": set_no})
     return meta
 
 
@@ -225,14 +225,21 @@ def fetch_setlistfm_reverse(date: str, city: str, venue: str, api_key: str,
     else:
         return None
 
-    if len(pool) > 1 and known_titles:
-        known = {norm(t) for t in known_titles}
+    known = {norm(t) for t in (known_titles or [])}
 
-        def overlap(sl):
-            titles = {norm(song.get("name", ""))
-                      for s in sl.get("sets", {}).get("set", [])
-                      for song in s.get("song", [])}
-            return len(known & titles)
+    def overlap(sl):
+        titles = {norm(song.get("name", ""))
+                  for s in sl.get("sets", {}).get("set", [])
+                  for song in s.get("song", [])}
+        return len(known & titles)
+
+    if not venue:
+        # no venue to match: only a setlist that shares songs with ours will do,
+        # even if it's the only show in town that night
+        pool.sort(key=overlap, reverse=True)
+        if not known or overlap(pool[0]) < 2 or (len(pool) > 1 and overlap(pool[1]) == overlap(pool[0])):
+            return None
+    elif len(pool) > 1 and known:
         pool.sort(key=overlap, reverse=True)
         if overlap(pool[0]) == 0:
             return None      # nothing corroborates — don't guess
