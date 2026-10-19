@@ -139,7 +139,8 @@ def fetch_setlistfm(artist: str, date: str, api_key: str, timeout: int = 12):
             name = song.get("name", "").strip()
             if name:
                 n += 1
-                meta.tracks.append({"num": n, "title": name, "disc": disc, "set": set_no})
+                meta.tracks.append({"num": n, "title": name, "disc": disc, "set": set_no,
+                                    **({"segue": True} if song.get("segue") else {})})
     return meta
 
 
@@ -174,7 +175,8 @@ def _slf_result_to_meta(sl) -> ShowMeta:
             name = song.get("name", "").strip()
             if name:
                 n += 1
-                meta.tracks.append({"num": n, "title": name, "disc": disc, "set": set_no})
+                meta.tracks.append({"num": n, "title": name, "disc": disc, "set": set_no,
+                                    **({"segue": True} if song.get("segue") else {})})
     return meta
 
 

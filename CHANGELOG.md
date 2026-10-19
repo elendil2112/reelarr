@@ -6,6 +6,81 @@ databases first.
 
 ## Unreleased
 
+### Track titles: more songs than files
+- When the setlist has more songs than there are files, Reelarr no longer
+  just holds the show. It files it when every file is accounted for:
+  - a file that names its songs ("Scarlet Begonias > Fire on the Mountain")
+    is matched to them in the setlist, in order, and titled with all of them;
+  - songs the recording simply doesn't have are left out (noted in Activity);
+  - segues marked in an info file ("Scarlet Begonias >") or by setlist.fm are
+    grouped onto one track when that gives exactly one group per file.
+  Anything still unexplained waits in Review as before. Shows with as many
+  files as songs, or more, are handled exactly as before.
+
+### Matching — fixes from a 1,311-show audit report
+**The learning tool (Maintenance → Learn from your corrections)**
+- **Fixed: shows attached to another artist's show of the same date.** When a
+  filed show had been moved or deleted, the tool took any folder with that date
+  as the show — so toad1992-03-08 became the Grateful Dead's 1992-03-08 — and
+  then learned "Toad the Wet Sprocket → Grateful Dead" as a rule for every
+  future show. It now only follows a show to a folder that is plainly the same
+  show (same artist folder, or a near-identical name).
+- Artist rules are only learned for respellings of the same act
+  ("Motorhead" → "Motörhead"), never between unrelated names. Venue rules are
+  only learned when their city and state are a real place, and never overrule
+  the city/state from your own album tags, a nugs sidecar or setlist.fm (the
+  "The Fillmore → Benmont Tench – piano…, backing vocals" rule).
+- **On upgrade**, learned rules that fail these checks are removed (after a
+  backup of library_index.db) and each one is listed in Activity; records the
+  old tool attached to another artist's show are pointed out in Activity too.
+
+**Artist**
+- Info-file lines that aren't band names are no longer taken as the artist:
+  labels ("faults: none"), sentences ("Banned tracks removed."), places
+  ("Santa Monica, California."), dated or filename lines, sharing boilerplate,
+  and songs from the show's own setlist. A trailing date is trimmed
+  ("TOAD THE WET SPROCKET 3/8/92").
+- When the folder name and the info file name different, unrelated artists,
+  the one in your library wins; if that can't decide it, the show waits in Review.
+- HTML info files (archive.org descriptions) and UTF-16 info files are read properly.
+- setlist.fm's search by date and city only ever fills in a missing artist;
+  with no venue to match it needs two matching songs.
+- If the folder's own prefix (toad, mmj) belongs to a different artist in your
+  library than the one identified, the show waits in Review.
+
+**Date**
+- A full date in the folder name beats one from an info file or loose tags,
+  unless setlist.fm confirms the other. Transfer/upload/"generated on" dates
+  and future dates in info files are ignored.
+
+**Venue, city, state**
+- Venues lose leading dates ("75-06-06", "06/14/08 (Sat)"), SHNIDs, format
+  words and a repeated city ("House Of Blues - Chicago"); a venue that's only
+  "SBD" or "FM" is dropped. ALL-CAPS venues and cities are title-cased,
+  keeping call signs and acronyms (WXRT, BBC).
+- New layouts: "City, ST @ Venue - Festival - Stage", "City, ST -- Venue",
+  "Recorded live at Venue, City (ST), …".
+- Folder names: a city after the date ("Isaak1991-09-22.Toronto"), dotted
+  venue and city ("De Doelen.Rotterdam,NL"), SHNIDs before the place, CamelCase
+  and dotted artists ("EmmylouHarris", "Frank.Zappa"), dotted junk after the state.
+- Pre-tagged album strings are only trusted when their place is real and they
+  agree with the folder name's date and SHNID.
+- "Boston, Boston" → MA (was United Kingdom), "Chicago, Chicago" → IL,
+  "MI rm" → MI, "BE.VB" → Belgium, "Basel, BS" → Switzerland,
+  "New York, NY" keeps its city.
+- A venue, city or state that still can't be right is dropped, so the show
+  waits in Review rather than being filed with it.
+
+**Source and SHNID**
+- The SHNID in the folder name beats one an info file cites; "matrix"/"mtx"
+  in the folder name beats "SBD" in the info file.
+
+**Titles**
+- "Track 01"-style titles in pre-tagged files no longer beat a real setlist.
+- An album title from untrusted tags is never used as the venue; a show whose
+  only clue is an album title ("Orgasmatron (Expanded Edition)") waits in
+  Review as a likely official album.
+
 ### Track titles
 - **Fixed: titles one track off when a show starts with a tuning track.**
   setlists don't list tuning, crowd or break tracks, so a show with one more

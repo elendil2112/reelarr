@@ -1291,12 +1291,16 @@ def parse_info_file(path: Path, known_venues: frozenset = frozenset()) -> ShowMe
             continue
         m = _TRACK_RE.match(s)
         if m and len(m.group(2).strip()) > 1:
-            title = clean_track_title(m.group(2).strip())
+            raw_title = m.group(2).strip()
+            title = clean_track_title(raw_title)
             if not title or is_junk_track_title(title):
                 continue
             tracknum += 1
+            # "Scarlet Begonias >" / "Scarlet Begonias -> 8:04": flows into the next song
+            segue = bool(re.search(r"(?:-+>|>|\u2192)\s*\*?\s*(?:\(?\d{1,3}:\d{2}(?:[.:]\d+)?\)?)?\s*[*#&+~^@]*\s*$",
+                                   raw_title))
             meta.tracks.append({"num": int(m.group(1)), "title": title,
-                                "disc": current_disc, "set": set_no})
+                                "disc": current_disc, "set": set_no, **({"segue": True} if segue else {})})
 
     # whole-file source inference: combines mic/soundboard/broadcast evidence
     # across every line — a "Taping Rig:" block implies AUD even with no
