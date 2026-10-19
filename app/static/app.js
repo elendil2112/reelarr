@@ -287,7 +287,7 @@ async function refreshReview() {
       </div>
       ${(m.parts || []).length ? "" : `<details class="trk" data-trk ${/Titles need a look/.test(s.notes || "") ? "open" : ""}>
         <summary>Track titles <span class="hint" data-trk-sum></span></summary>
-        <p class="hint">Tick <strong>not a song</strong> for tuning, crowd or break tracks — the songs then line up with the rest, in order.</p>
+        <p class="hint">Tick <strong>not a song</strong> for tuning, crowd or break tracks — the songs then line up with the rest, in order. Type over any title to change it (Enter moves to the next); clear one to go back to the setlist's.</p>
         <div class="tbl-scroll"><table class="tbl trk-tbl"><thead><tr><th class="num">#</th><th>File</th><th class="num">Length</th><th>Title it gets</th><th>Not a song</th></tr></thead><tbody></tbody></table></div>
         <p class="hint mono" data-trk-msg></p>
       </details>`}
@@ -328,6 +328,7 @@ async function refreshReview() {
         const meta = {};
         $$("input[data-field]", card).forEach(i => meta[i.dataset.field] = i.value.trim());
         if (card.dataset.extras) meta.extras = JSON.parse(card.dataset.extras);
+        if (card.dataset.titles) meta.titles = JSON.parse(card.dataset.titles);
         const r = await api.post(`/api/show/${id}/${btn.dataset.act}`, meta);
         msg.textContent = r.error ? "✗ " + r.error
           : (btn.dataset.act === "replace" ? "✓ replaced the old copy → " : "✓ filed at ") + r.dest;
@@ -367,29 +368,63 @@ async function refreshReview() {
 
 // Review → Track titles: which file gets which title, and which aren't songs.
 const fmtLen = sec => sec == null ? "?" : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
-async function loadTracks(card, extras) {
+async function loadTracks(card, extras, focusName) {
   const d = $("[data-trk]", card);
-  const body = extras ? { extras } : {};
+  const typed = card.dataset.titles ? JSON.parse(card.dataset.titles) : null;
+  const body = {};
+  if (extras) body.extras = extras;
+  if (typed) body.titles = typed;
+  const seq = (Number(card.dataset.trkSeq) || 0) + 1;
+  card.dataset.trkSeq = String(seq);
   const r = await api.post(`/api/show/${card.dataset.id}/tracks`, body);
+  if (card.dataset.trkSeq !== String(seq)) return;        // a newer edit is already on its way
   d.dataset.loaded = "1";
   const msg = $("[data-trk-msg]", d);
   if (r.error) { msg.textContent = "✗ " + r.error; return; }
   // File it writes exactly what's shown here
   card.dataset.extras = JSON.stringify(["", ...r.extras]);
-  $("tbody", d).innerHTML = r.entries.map((e, i) => `<tr class="${e.kind === "extra" ? "trk-extra" : e.kind === "unmatched" ? "trk-none" : ""}">
+  if (!typed) card.dataset.titles = JSON.stringify(Object.fromEntries(
+    r.entries.filter(e => e.edited).map(e => [e.name, e.title])));
+  $("tbody", d).innerHTML = r.entries.map((e, i) => `<tr class="${e.kind === "extra" ? "trk-extra" : e.kind === "unmatched" ? "trk-none" : ""}${e.edited ? " trk-edited" : ""}">
       <td class="num mono">${i + 1}</td>
       <td class="mono trk-file" title="${esc(e.name)}">${esc(e.name)}</td>
       <td class="num mono">${fmtLen(e.seconds)}</td>
-      <td>${e.title ? esc(e.title) : '<span class="hint">no title</span>'}</td>
+      <td><input type="text" class="trk-title" data-title="${esc(e.name)}" value="${esc(e.title)}" placeholder="no title — type one"
+             aria-label="Title for ${esc(e.name)}" spellcheck="true"${e.edited ? ' title="You typed this title — clear it to go back to the setlist\'s"' : ""}></td>
       <td><input type="checkbox" data-extra="${esc(e.name)}" aria-label="${esc(e.name)} is not a song" ${e.kind === "extra" ? "checked" : ""}></td></tr>`).join("");
   const nExtra = r.entries.filter(e => e.kind === "extra").length;
-  $("[data-trk-sum]", d).textContent = `— ${r.entries.length} files, ${r.songs} songs${nExtra ? `, ${nExtra} not ${nExtra === 1 ? "a song" : "songs"}` : ""}${r.ok ? "" : " · needs a look"}`;
+  const nEdited = r.entries.filter(e => e.edited).length;
+  $("[data-trk-sum]", d).textContent = `— ${r.entries.length} files, ${r.songs} songs${nExtra ? `, ${nExtra} not ${nExtra === 1 ? "a song" : "songs"}` : ""}${nEdited ? `, ${nEdited} typed by you` : ""}${r.ok ? "" : " · needs a look"}`;
   msg.className = "mono " + (r.ok ? "hint" : "bad");
-  msg.textContent = r.ok ? (r.songs ? "✓ every song has a file" : "No setlist yet — Pull from setlist.fm, or file it with the files' own titles.")
-    : "✗ " + r.note + (nExtra && r.how !== "yours" ? " — the ticked file is a guess: check it, then File it." : "");
+  msg.textContent = r.ok ? (r.how === "yours" && nEdited ? "✓ titles set by you" : r.songs ? "✓ every song has a file" : "No setlist yet — type titles above, Pull from setlist.fm, or file it with the files' own titles.")
+    : "✗ " + r.note + (nExtra && r.how !== "yours" ? " — the ticked file is a guess: check it, then File it." : "") + " Or type the titles yourself.";
+  const ticked = () => ["", ...$$("[data-extra]", d).filter(x => x.checked).map(x => x.dataset.extra)];
   $$("[data-extra]", d).forEach(c => c.addEventListener("change", () =>
     // "" leads the list so "none ticked" still counts as your choice
-    loadTracks(card, ["", ...$$("[data-extra]", d).filter(x => x.checked).map(x => x.dataset.extra)])));
+    loadTracks(card, ticked())));
+  const inputs = $$("input[data-title]", d);
+  inputs.forEach((inp, i) => {
+    const before = inp.value;
+    const save = (next) => {
+      if (inp.dataset.saved) return;          // Enter already saved it; ignore the change event that follows
+      inp.dataset.saved = "1";
+      const v = inp.value.trim();
+      const t = card.dataset.titles ? JSON.parse(card.dataset.titles) : {};
+      if (v === before.trim() && next === undefined) { delete inp.dataset.saved; return; }
+      if (v) t[inp.dataset.title] = v; else delete t[inp.dataset.title];      // empty: back to the setlist's
+      card.dataset.titles = JSON.stringify(t);
+      loadTracks(card, ticked(), next);
+    };
+    inp.addEventListener("change", () => save());
+    inp.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); const nx = inputs[i + 1]; save(nx ? nx.dataset.title : ""); }
+      if (e.key === "Escape") { inp.value = before; inp.blur(); }
+    });
+  });
+  if (focusName) {
+    const f = inputs.find(x => x.dataset.title === focusName);
+    if (f) { f.focus(); f.select(); }
+  }
 }
 
 $("#btn-toss-dupes").addEventListener("click", async () => {

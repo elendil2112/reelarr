@@ -678,10 +678,12 @@ def api_show_tracks(show_id: int, body: dict = Body(default={})):
     if meta.get("parts"):
         return {"parts": True, "entries": [], "ok": True, "note": ""}
     extras = body.get("extras") if isinstance(body.get("extras"), list) else meta.get("extras") or None
+    titles = pipeline._titles_from(body, meta) if "titles" in body else meta.get("title_overrides") or {}
     files = pipeline._audio_files(show_dir, metadata.AUDIO_EXTS)
     p = align.plan(files, meta.get("tracks") or [],
-                   extras=[str(x) for x in extras][:200] if extras is not None else None)
-    return {"entries": [{k: e[k] for k in ("name", "seconds", "kind", "title")} for e in p["entries"]],
+                   extras=[str(x) for x in extras][:200] if extras is not None else None, titles=titles)
+    return {"entries": [{**{k: e[k] for k in ("name", "seconds", "kind", "title")}, "edited": bool(e.get("edited"))}
+                        for e in p["entries"]],
             "ok": p["ok"], "note": p["note"], "how": p["how"], "extras": p["extras"],
             "songs": len(meta.get("tracks") or [])}
 

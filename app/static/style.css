@@ -445,3 +445,8 @@ details.trk .tbl { margin-top: 6px; }
 .trk-tbl tr.trk-extra td:nth-child(4) { font-style: italic; }
 .trk-tbl tr.trk-none td:nth-child(4) { color: var(--signal); }
 @media (max-width: 720px) { .trk-tbl td.trk-file { max-width: 38vw; } }
+
+.trk-tbl input.trk-title { width: 100%; min-width: 180px; padding: 4px 7px; font-size: 13.5px; font-family: inherit; }
+.trk-tbl tr.trk-edited input.trk-title { border-color: var(--brass); }
+.trk-tbl tr.trk-extra input.trk-title { font-style: italic; color: var(--faded); }
+.trk-tbl tr.trk-none input.trk-title::placeholder { color: var(--signal); }

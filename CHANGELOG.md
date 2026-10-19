@@ -6,6 +6,15 @@ databases first.
 
 ## Unreleased
 
+### Review: type track titles yourself
+- Every title in **Review → Track titles** can be edited. Type over one and
+  press Enter to move to the next; clear it to go back to the setlist's
+  title. Your titles are kept with the show and written to the tags when you
+  File it.
+- Once every file has a title, the show can be filed even when the file count
+  and the setlist never lined up — you've looked at all of it.
+- Titles you type are learned as songs for that artist, like an approved setlist.
+
 ### Track titles: more songs than files
 - When the setlist has more songs than there are files, Reelarr no longer
   just holds the show. It files it when every file is accounted for:
