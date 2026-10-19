@@ -294,3 +294,54 @@ def test_info_file_segue_marks_reach_the_tags(tmp_path):
                     "d1t01. Bertha\nd1t02. Scarlet Begonias >\nd1t03. Fire on the Mountain\nd1t04. Loser\n")
     r = m["pipeline"].process_show(show)
     assert _titles(r["dest"]) == ["Bertha", "Scarlet Begonias > Fire on the Mountain", "Loser"]
+
+
+# ── titles you type in Review ────────────────────────────────────────────────
+
+def test_a_typed_title_wins_for_its_file():
+    i = info(("t01.flac", 380), ("t02.flac", 420), ("t03.flac", 270), ("t04.flac", 610))
+    p = align.plan([], SONGS, info=i, titles={"t02.flac": "Loser (w/ Bob)"})
+    assert p["ok"] and titles(p) == ["Bertha", "Loser (w/ Bob)", "El Paso", "Sugaree"]
+    assert [e.get("edited", False) for e in p["entries"]] == [False, True, False, False]
+
+
+def test_typing_every_title_settles_a_mismatch():
+    i = info(("t01.flac", 380), ("t02.flac", 900), ("t03.flac", 610))      # 3 files, 4 songs, no names
+    assert not align.plan([], SONGS, info=i)["ok"]
+    p = align.plan([], SONGS, info=i, titles={"t01.flac": "Bertha", "t02.flac": "Loser > El Paso",
+                                              "t03.flac": "Sugaree"})
+    assert p["ok"] and p["how"] == "yours" and titles(p)[1] == "Loser > El Paso"
+
+
+def test_titles_without_any_setlist():
+    i = info(("t01.flac", 380), ("t02.flac", 420))
+    p = align.plan([], [], info=i, titles={"t01.flac": "Jam", "t02.flac": "  "})
+    assert titles(p) == ["Jam", ""]                # a blank entry is no title, not a title of spaces
+
+
+@needs_ffmpeg
+def test_typed_titles_go_through_review_to_the_tags(tmp_path):
+    from test_auth import client, setup_admin
+    m, show = _show(tmp_path, [20, 200, 190, 210, 25], SETLIST_TXT, hold=True)
+    c = client(tmp_path)
+    setup_admin(c)
+    cfg = importlib.import_module("app.config")
+    cfg.set_key(["filing", "hold_uncertain_titles"], True)
+    cfg.set_key(["sources"], {**cfg.load()["sources"], "use_internet_archive": False, "use_setlistfm": False,
+                              "use_musicbrainz_genre": False})
+    cfg.set_key(["safety", "dry_run"], False)
+    r = importlib.import_module("app.pipeline").process_show(show)
+    assert r["status"] == "review"
+    sid = importlib.import_module("app.database")._conn().execute(
+        "SELECT id FROM shows ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    typed = {"gd77-05-08d1t01.flac": "Tuning", "gd77-05-08d1t02.flac": "New Minglewood Blues",
+             "gd77-05-08d1t03.flac": "Loser", "gd77-05-08d1t04.flac": "El Paso",
+             "gd77-05-08d1t05.flac": "They Love Each Other (partial)"}
+    t = c.post(f"/api/show/{sid}/tracks", json={"titles": typed}).json()
+    assert t["ok"] and [e["title"] for e in t["entries"]][-1] == "They Love Each Other (partial)"
+    assert all(e["edited"] for e in t["entries"])
+    a = c.post(f"/api/show/{sid}/approve", json={"titles": typed}).json()
+    assert a.get("status") == "filed", a
+    assert _titles(a["dest"]) == list(typed.values())
+    stored = json.loads(importlib.import_module("app.database").get_show(sid)["meta"])
+    assert stored["title_overrides"]["gd77-05-08d1t05.flac"] == "They Love Each Other (partial)"

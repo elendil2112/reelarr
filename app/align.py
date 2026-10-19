@@ -138,7 +138,26 @@ def _fmt(sec) -> str:
     return f"{sec // 60}:{sec % 60:02d}"
 
 
-def plan(files: list, tracks: list, extras=None, info=None) -> dict:
+def plan(files: list, tracks: list, extras=None, info=None, titles=None) -> dict:
+    """…and `titles` — {file name: title} you typed in Review — is laid over
+    the result: your title wins for that file, and once every file has a title
+    the pairing counts as settled (you've looked at all of it)."""
+    p = _plan(files, tracks, extras=extras, info=info)
+    mine = {str(k): str(v).strip()[:200] for k, v in (titles or {}).items() if str(v).strip()}
+    if not mine:
+        return p
+    for e in p["entries"]:
+        t = mine.get(e["name"])
+        if t:
+            e["title"], e["edited"] = t, True
+            if e["kind"] == "unmatched":
+                e["kind"] = "song"
+    if not p["ok"] and p["entries"] and all(e["title"] for e in p["entries"]):
+        p["ok"], p["note"], p["how"] = True, "titles set by you", "yours"
+    return p
+
+
+def _plan(files: list, tracks: list, extras=None, info=None) -> dict:
     """Pair setlist titles with files.
 
     files   — audio paths in play order

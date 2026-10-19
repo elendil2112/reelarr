@@ -1295,11 +1295,12 @@ def _tag_files(audio: list, meta: ShowMeta, setlist: ShowMeta, log, b: "fileops.
     from . import align
     album = meta.album_title
     loc = ", ".join(p for p in (meta.venue, meta.city, meta.state) if p)
-    pairing = align.plan(audio, setlist.tracks, extras=meta.extras or None)
-    if setlist.tracks and pairing["extras"]:
+    pairing = align.plan(audio, setlist.tracks, extras=meta.extras or None,
+                         titles=meta.title_overrides or None)
+    if (setlist.tracks or meta.title_overrides) and pairing["extras"]:
         log("info", "titles", ("not songs: " if pairing["ok"] else "probably not songs: ")
             + align.summary(pairing))
-    if setlist.tracks and not pairing["ok"]:
+    if (setlist.tracks or meta.title_overrides) and not pairing["ok"]:
         log("warn", "titles", pairing["note"])
     for i, (f, entry) in enumerate(zip(audio, pairing["entries"]), 1):
         track = {"title": entry["title"]} if entry["title"] else {}
@@ -1763,6 +1764,7 @@ def replace_show(show_id: int, edited_meta: dict) -> dict:
                           else stored.get(f, "")) or "")
     meta.tracks = stored.get("tracks", [])
     meta.extras = _extras_from(edited_meta, stored)
+    meta.title_overrides = _titles_from(edited_meta, stored)
     missing = [f for f in REQUIRED_FIELDS if not getattr(meta, f)]
     if missing:
         return {"error": f"still missing: {', '.join(missing)}"}
@@ -1844,6 +1846,17 @@ def toss_duplicates() -> dict:
     return {"tossed": tossed}
 
 
+def _titles_from(edited: dict, stored: dict) -> dict:
+    """Track titles you typed in Review: {file name: title}."""
+    raw = edited.get("titles") if isinstance(edited.get("titles"), dict) else stored.get("title_overrides", {})
+    out = {}
+    for k, v in list((raw or {}).items())[:500]:
+        name, title = Path(str(k)).name, fix_text(str(v)).strip()[:200]
+        if name and title:
+            out[name] = title
+    return out
+
+
 def _extras_from(edited: dict, stored: dict) -> list:
     """Files you marked 'not a song' in Review (names only, never paths)."""
     raw = edited.get("extras") if isinstance(edited.get("extras"), list) else stored.get("extras", [])
@@ -1853,10 +1866,11 @@ def _extras_from(edited: dict, stored: dict) -> list:
 
 def _extras_problem(show_dir: Path, meta: ShowMeta) -> str:
     """Your 'not a song' ticks must leave exactly one file per song."""
-    if not (meta.extras and meta.tracks) or meta.parts:
+    if not ((meta.extras or meta.title_overrides) and (meta.tracks or meta.title_overrides)) or meta.parts:
         return ""
     from . import align
-    p = align.plan(_audio_files(show_dir, AUDIO_EXTS), meta.tracks, extras=meta.extras)
+    p = align.plan(_audio_files(show_dir, AUDIO_EXTS), meta.tracks, extras=meta.extras or None,
+                   titles=meta.title_overrides or None)
     return "" if p["ok"] else f"Track titles: {p['note']}"
 
 
@@ -1878,6 +1892,7 @@ def approve_show(show_id: int, edited_meta: dict) -> dict:
                           else stored.get(f, "")) or "")
     meta.tracks = stored.get("tracks", [])
     meta.extras = _extras_from(edited_meta, stored)
+    meta.title_overrides = _titles_from(edited_meta, stored)
     meta.notes = stored.get("notes", "")
     meta.parts = stored.get("parts", []) or []
     meta.bracket_override = stored.get("bracket_override", "") or ""
@@ -1901,9 +1916,10 @@ def approve_show(show_id: int, edited_meta: dict) -> dict:
     # like the disk-diff learning pass — but caught the moment you approve.
     _learn_from_brig_edit(stored, meta, log)
     # a setlist you approved from Review is authoritative — seed the corpus
-    if meta.tracks and meta.artist:
+    if (meta.tracks or meta.title_overrides) and meta.artist:
+        typed = [{"title": t} for t in meta.title_overrides.values()]
         library_index.learn_songs(
-            (meta.album_artist or meta.artist), _songs_only(meta.tracks), confirmed=True)
+            (meta.album_artist or meta.artist), _songs_only(meta.tracks + typed), confirmed=True)
 
     # a single show you approved by hand runs live even in dry-run; it's
     # journalled, so Activity → Undo puts it back in the watch folder

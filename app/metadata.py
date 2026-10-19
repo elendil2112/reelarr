@@ -342,6 +342,7 @@ class ShowMeta:
     parts: list = field(default_factory=list)    # [{dir, disc, label, bracket, tracks}]
     bracket_override: str = ""
     extras: list = field(default_factory=list)   # file names you marked "not a song" in Review
+    title_overrides: dict = field(default_factory=dict)   # file name → title you typed in Review
 
     FIELDS = ("artist", "host_artist", "date", "venue", "city", "state",
               "source_type", "official", "shnid", "recorder", "genre")
@@ -354,6 +355,8 @@ class ShowMeta:
             d["bracket_override"] = self.bracket_override
         if self.extras:
             d["extras"] = self.extras
+        if self.title_overrides:
+            d["title_overrides"] = self.title_overrides
         return d
 
     @property
