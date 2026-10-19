@@ -232,3 +232,65 @@ def test_archive_org_titles_win_when_they_cover_every_file(tmp_path, monkeypatch
     monkeypatch.setattr(src, "fetch_ia", lambda ident: ia)
     r = m["pipeline"].process_show(show)
     assert _titles(r["dest"])[:2] == ["Crowd & Tuning", "New Minglewood Blues"]
+
+
+# ── more songs than files (only then) ────────────────────────────────────────
+
+FIVE = setlist("Bertha", "Scarlet Begonias", "Fire on the Mountain", "Loser", "Sugaree")
+
+
+def test_a_segue_recorded_as_one_file_is_found_by_its_name():
+    p = align.plan([], FIVE, info=info(("01 Bertha.flac", 380), ("02 Scarlet Begonias > Fire on the Mountain.flac", 1500),
+                                       ("03 Loser.flac", 420), ("04 Sugaree.flac", 610)))
+    assert p["ok"] and p["how"] == "labels"
+    assert titles(p) == ["Bertha", "Scarlet Begonias > Fire on the Mountain", "Loser", "Sugaree"]
+
+
+def test_one_name_for_a_segue_file_covers_the_songs_in_between():
+    p = align.plan([], FIVE, info=info(("a.flac", 380, "Bertha"), ("b.flac", 1500, "Scarlet -> Fire on the Mountain"),
+                                       ("c.flac", 420, "Loser"), ("d.flac", 610, "Sugaree")))
+    assert p["ok"] and titles(p)[1] == "Scarlet Begonias > Fire on the Mountain"
+
+
+def test_songs_the_recording_doesnt_have():
+    p = align.plan([], FIVE, info=info(("01 Bertha.flac", 380), ("02 Loser.flac", 420), ("03 Sugaree.flac", 610)))
+    assert p["ok"] and titles(p) == ["Bertha", "Loser", "Sugaree"]
+    assert "not on this recording: Scarlet Begonias, Fire on the Mountain" in p["note"]
+
+
+def test_a_tuning_file_alongside_fewer_songs():
+    p = align.plan([], FIVE, info=info(("00 Tuning.flac", 40), ("01 Bertha.flac", 380), ("02 Loser.flac", 420),
+                                       ("03 Sugaree.flac", 610)))
+    assert p["ok"] and titles(p) == ["Tuning", "Bertha", "Loser", "Sugaree"] and p["extras"] == ["00 Tuning.flac"]
+
+
+def test_segues_marked_in_the_setlist_group_onto_one_file():
+    tracks = setlist("Bertha", "Scarlet Begonias", "Fire on the Mountain", "Loser")
+    tracks[1]["segue"] = True
+    p = align.plan([], tracks, info=info(("d1t01.flac", 380), ("d1t02.flac", 1500), ("d1t03.flac", 420)))
+    assert p["ok"] and p["how"] == "segues"
+    assert titles(p) == ["Bertha", "Scarlet Begonias > Fire on the Mountain", "Loser"]
+
+
+def test_a_file_that_matches_nothing_still_waits_for_you():
+    p = align.plan([], FIVE, info=info(("01 Bertha.flac", 380), ("02 Mystery Jam.flac", 900), ("03 Sugaree.flac", 610)))
+    assert not p["ok"]
+
+
+def test_names_out_of_order_dont_count():
+    p = align.plan([], FIVE, info=info(("01 Sugaree.flac", 610), ("02 Bertha.flac", 380), ("03 Loser.flac", 420)))
+    assert not p["ok"]
+
+
+def test_equal_or_extra_files_dont_use_this_rule():
+    p = align.plan([], setlist("Bertha", "Loser"),
+                   info=info(("01 Loser.flac", 380), ("02 Bertha.flac", 420)))
+    assert p["how"] == "count"                     # counts match: paired in order, as before
+
+
+@needs_ffmpeg
+def test_info_file_segue_marks_reach_the_tags(tmp_path):
+    m, show = _show(tmp_path, [200, 900, 210],
+                    "d1t01. Bertha\nd1t02. Scarlet Begonias >\nd1t03. Fire on the Mountain\nd1t04. Loser\n")
+    r = m["pipeline"].process_show(show)
+    assert _titles(r["dest"]) == ["Bertha", "Scarlet Begonias > Fire on the Mountain", "Loser"]
