@@ -6,6 +6,17 @@ databases first.
 
 ## Unreleased
 
+### Track titles: more songs than files
+- When the setlist has more songs than there are files, Reelarr no longer
+  just holds the show. It files it when every file is accounted for:
+  - a file that names its songs ("Scarlet Begonias > Fire on the Mountain")
+    is matched to them in the setlist, in order, and titled with all of them;
+  - songs the recording simply doesn't have are left out (noted in Activity);
+  - segues marked in an info file ("Scarlet Begonias >") or by setlist.fm are
+    grouped onto one track when that gives exactly one group per file.
+  Anything still unexplained waits in Review as before. Shows with as many
+  files as songs, or more, are handled exactly as before.
+
 ### Matching — fixes from a 1,311-show audit report
 **The learning tool (Maintenance → Learn from your corrections)**
 - **Fixed: shows attached to another artist's show of the same date.** When a

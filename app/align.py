@@ -192,6 +192,11 @@ def plan(files: list, tracks: list, extras=None, info=None) -> dict:
 
     surplus = n_files - n_songs
     if surplus < 0:
+        # more songs than files: segues recorded as one file, or songs the
+        # recording doesn't have. Only settled when every file is accounted for.
+        fewer = _fewer_files(info, tracks)
+        if fewer:
+            return fewer
         return _by_number(info, tracks, f"{n_files} files but the setlist has {n_songs} songs — "
                                         "the setlist may be for a different recording, or files are missing")
     if surplus > MAX_EXTRAS:
@@ -233,6 +238,78 @@ def plan(files: list, tracks: list, extras=None, info=None) -> dict:
     return result(named | set(short), False,
                   f"{n_files} files vs {n_songs} songs — couldn't tell which "
                   f"{'file isn’t a song' if surplus == 1 else f'{surplus} files aren’t songs'}", "none")
+
+
+_SEGUE_SPLIT = re.compile(r"\s*(?:-+>|>|\u2192|\u00bb)\s*")
+
+
+def _same_song(a: str, b: str) -> bool:
+    na, nb = _norm(a), _norm(b)
+    if not na or not nb:
+        return False
+    if na == nb or (min(len(na), len(nb)) >= 6 and (na in nb or nb in na)):
+        return True
+    import difflib
+    return difflib.SequenceMatcher(None, na, nb).ratio() >= 0.85
+
+
+def _entry(f, kind, title, track=None):
+    return {"name": f["name"], "seconds": f["seconds"], "kind": kind, "title": title, "track": track}
+
+
+def _fewer_files(info: list, tracks: list):
+    """The setlist has more songs than there are files. Two ways that's fine:
+
+    1. Each file says what's on it (its title tag or file name) and those names
+       are found in the setlist, in order — some files holding several songs
+       ('Scarlet Begonias > Fire on the Mountain'), some songs simply not on
+       this recording. Every file must match.
+    2. The setlist marks segues ('Scarlet Begonias >') and grouping each segue
+       chain into one track gives exactly one group per file.
+
+    Returns a plan, or None when neither accounts for every file."""
+    titles = [t.get("title", "") for t in tracks]
+
+    # 1) the files' own names, matched to the setlist in order
+    entries, j, used, ok = [], 0, [], True
+    for f in info:
+        label = (f.get("label") or "").strip()
+        if is_filler(label):
+            entries.append(_entry(f, "extra", _tidy(label)))
+            continue
+        parts = [x for x in _SEGUE_SPLIT.split(label) if x.strip()]
+        hits = []
+        for part in parts:
+            k = next((k for k in range(j, min(len(titles), j + 6)) if _same_song(part, titles[k])), None)
+            if k is None:
+                break
+            hits.append(k)
+            j = k + 1
+        if not parts or len(hits) != len(parts):
+            ok = False
+            break
+        span = list(range(hits[0], hits[-1] + 1))          # a segue file covers the songs in between too
+        used += span
+        entries.append(_entry(f, "song", " > ".join(titles[k] for k in span), tracks[span[0]]))
+    if ok and used:
+        missing = [titles[k] for k in range(len(titles)) if k not in set(used)]
+        note = ("not on this recording: " + ", ".join(missing[:6]) + ("…" if len(missing) > 6 else "")) if missing else ""
+        return {"entries": entries, "ok": True, "note": note, "how": "labels", "extras": [
+            e["name"] for e in entries if e["kind"] == "extra"]}
+
+    # 2) segue chains from the setlist, one per file
+    groups, cur = [], []
+    for t in tracks:
+        cur.append(t)
+        if not t.get("segue"):
+            groups.append(cur)
+            cur = []
+    if cur:
+        groups.append(cur)
+    if len(groups) == len(info) and len(groups) < len(tracks):
+        entries = [_entry(f, "song", " > ".join(t["title"] for t in g), g[0]) for f, g in zip(info, groups)]
+        return {"entries": entries, "ok": True, "note": "", "how": "segues", "extras": []}
+    return None
 
 
 def _by_number(info: list, tracks: list, note: str) -> dict:
