@@ -6,6 +6,13 @@ databases first.
 
 ## Unreleased
 
+### Maintenance: sent-back shows wait in Review
+- Shows sent back from **Find problems** are identified again and then wait in
+  Review with the problem noted, instead of filing themselves again with the
+  same mistakes. Approving one files it as usual. Reprocessing keeps it in
+  Review. A `.reelarr-review` note in the folder does this; it's removed when
+  the show is filed.
+
 ### Review: type track titles yourself
 - Every title in **Review → Track titles** can be edited. Type over one and
   press Enter to move to the next; clear it to go back to the setlist's

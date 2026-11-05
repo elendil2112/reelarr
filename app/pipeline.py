@@ -34,6 +34,21 @@ from .metadata import (ShowMeta, AUDIO_EXTS, TAGGABLE_EXTS, parse_folder_name, r
 
 REQUIRED_FIELDS = ("artist", "date", "venue", "city", "state")
 
+# Left in a show folder that Maintenance sent back to the watch folder: the
+# show waits in Review instead of filing itself again.
+REVIEW_MARKER = ".reelarr-review"
+
+
+def review_marker(show_dir: Path) -> dict:
+    """The send-back note in this folder, or {} if there isn't one."""
+    p = show_dir / REVIEW_MARKER
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text()) or {"reason": "sent back"}
+    except (OSError, ValueError):
+        return {"reason": "sent back"}
+
 
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
@@ -1401,10 +1416,11 @@ def file_show(show_dir: Path, meta: ShowMeta, cfg: dict, log, b: "fileops.Batch"
         log("info", "tag", f"tagged {n} file(s) — ALBUM: {meta.album_title}")
 
     # drop the sidecar before moving (to trash, so an undo can bring it back)
-    for name in (".reelarr.json", ".barbosa.json"):
+    for name in (".reelarr.json", ".barbosa.json", REVIEW_MARKER):
         sc = show_dir / name
         if sc.exists():
-            b.trash(sc, "provenance sidecar, no longer needed")
+            b.trash(sc, "provenance sidecar, no longer needed" if name != REVIEW_MARKER
+                    else "send-back note, show reviewed")
 
     # match the artist folder's existing conventions
     show_prefix, year_prefix, uses_years = artist_folder_conventions(artist_dir)
@@ -1545,6 +1561,12 @@ def process_show(show_dir: Path) -> dict:
         if result.get("hold"):
             needs_review = True
             note = "; ".join(x for x in [note, "Check this: " + "; ".join(result["hold"])] if x)
+        sent_back = review_marker(show_dir)
+        if sent_back:
+            needs_review = True
+            why = "; ".join(sent_back.get("flags") or []) or sent_back.get("reason", "")
+            note = "; ".join(x for x in ["Sent back from Maintenance — check before filing"
+                                          + (f" ({why})" if why else ""), note] if x)
 
         if dupe:
             policy = cfg["filing"]["duplicate_policy"]
