@@ -252,13 +252,56 @@ source). Upgrades migrate your databases and back them up first.
 
 ---
 
+## Privacy
+
+Reelarr has **no telemetry**. It never reports usage, errors or anything
+about your library to anyone, and there's no account to sign up for.
+Everything it knows — settings, databases, logs, backups — stays in your
+`config/` folder on your own machine.
+
+It only goes online to do the lookups you've turned on:
+
+| Service | Why | Turn it off |
+|---|---|---|
+| [setlist.fm](https://www.setlist.fm) | confirm venues, fill in song titles | Settings → Sources (or leave the API key empty) |
+| [archive.org](https://archive.org) | Live Music Archive: show details, monitored artists, Discover | Settings → Sources; don't monitor artists |
+| [MusicBrainz](https://musicbrainz.org) | an artist's genre | Settings → Sources |
+| your download client | send and track downloads | don't set one up |
+
+Each request carries only what that lookup needs — an artist, date or city,
+or an archive.org item name — and a `Reelarr/…` user agent. A key or password
+is only ever sent to the service it belongs to (your setlist.fm key to
+setlist.fm, your client's password to your client), and they're masked in
+the UI, logs and exports. The interface loads nothing from outside — no fonts, scripts or
+trackers.
+
+To remove everything Reelarr has stored, stop it and delete its `config/`
+folder. Your music is never touched by that.
+
+---
+
 ## What this is for
 
-Reelarr is for organising a personal archive of live recordings you have
-the right to collect — the tapers' tradition of freely traded, non-commercial
-soundboard and audience recordings. Respect each taper's wishes and each
-band's taping policy. Reelarr keeps official releases marked as official and
-never replaces them with fan recordings.
+Reelarr organises a personal archive of live recordings you have the right
+to collect — the tapers' tradition of freely traded, non-commercial
+soundboard and audience recordings.
+
+- **It doesn't host, share or provide recordings.** It tags and files what's
+  already on your drives, and can fetch what's freely published on the Live
+  Music Archive.
+- **Respect the music's rules.** Follow each band's taping and trading
+  policy and each taper's wishes. Never sell fan recordings or trade
+  official releases.
+- Official releases stay marked as official and are never replaced by fan
+  recordings.
+
+Reelarr is an independent project. It isn't affiliated with or endorsed by
+setlist.fm, the Internet Archive, MusicBrainz, GeoNames or any band, label or
+store; their names are used only to say what Reelarr works with.
+
+It's provided **as is, with no warranty** (see the [licence](LICENSE)). It
+moves and retags real files, which is why it starts in dry run, never
+deletes, and can undo — but keep a backup of anything you can't replace.
 
 ---
 
@@ -279,3 +322,6 @@ Reelarr is free software, licensed under the **GNU General Public License
 v3.0** — see [`LICENSE`](LICENSE). You may use, study, change and share it;
 if you distribute a modified version, you must share its source under the
 same licence.
+
+Reelarr ships with data and builds on software from other projects; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

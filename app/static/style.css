@@ -1,6 +1,8 @@
 /* Reelarr — "studio rack gear".
    Dark chassis, the amber of tape oxide and VU lamps, cool indicator LEDs.
-   amber = working · teal = done/filed · violet = needs you · rust = failed */
+   amber = working · teal = done/filed · violet = needs you · rust = failed
+   Every text colour meets WCAG AA (4.5:1) on bg, surface and surface-2 in both
+   modes; check new shades with tools/contrast.py. */
 
 :root {
   --bg:        #15161A;
@@ -13,8 +15,8 @@
   --amber-hi:  #F0BD62;
   --amber-dim: #A8761F;
   --teal:      #4FB8A8;
-  --rust:      #C8553D;
-  --violet:    #8B7FD4;
+  --rust:      #D87961;   /* 4.5:1 on every surface */
+  --violet:    #9589D9;
   --on-accent: #15161A;
   --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
@@ -29,15 +31,15 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --bg: #F5F1EA; --surface: #FFFFFF; --surface-2: #F0EBE2; --edge: #DDD5C8;
-    --ink: #23242A; --dim: #6E675E; --amber: #B97F1E; --amber-hi: #9A6812;
-    --amber-dim: #D9A54A; --teal: #2E8C7E; --rust: #B4442E; --violet: #6A5DC0;
+    --ink: #23242A; --dim: #6E675E; --amber: #89621E; --amber-hi: #73520F;
+    --amber-dim: #D9A54A; --teal: #227466; --rust: #B4442E; --violet: #685BBF;
     --on-accent: #FFFFFF;
   }
 }
 :root[data-theme="light"] {
   --bg: #F5F1EA; --surface: #FFFFFF; --surface-2: #F0EBE2; --edge: #DDD5C8;
-  --ink: #23242A; --dim: #6E675E; --amber: #B97F1E; --amber-hi: #9A6812;
-  --amber-dim: #D9A54A; --teal: #2E8C7E; --rust: #B4442E; --violet: #6A5DC0;
+  --ink: #23242A; --dim: #6E675E; --amber: #89621E; --amber-hi: #73520F;
+  --amber-dim: #D9A54A; --teal: #227466; --rust: #B4442E; --violet: #685BBF;
   --on-accent: #FFFFFF;
 }
 
