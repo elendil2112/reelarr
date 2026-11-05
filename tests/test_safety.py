@@ -43,7 +43,8 @@ def offline(settings: dict = None) -> dict:
     s = {"sources": {"use_internet_archive": False, "use_setlistfm": False,
                      "use_musicbrainz_genre": False},
          "watcher": {"audio_source_analysis": False},
-         "filing": {"auto_file_threshold": 50, "hold_uncertain_titles": False}}
+         "filing": {"auto_file_threshold": 50, "hold_uncertain_titles": False,
+                    "new_artist_policy": "auto"}}
     for k, v in (settings or {}).items():
         s.setdefault(k, {}).update(v) if isinstance(v, dict) else s.__setitem__(k, v)
     return s
@@ -122,7 +123,7 @@ def test_barbosa_install_migrates_without_touching_originals(tmp_path):
     assert hashlib.sha1((cfg / "barbosa.db").read_bytes()).hexdigest() == before
     st = m["migrations"].status()
     assert st["reelarr.db"] == st["latest"]["reelarr.db"] >= 4
-    assert st["library_index.db"] == st["latest"]["library_index.db"] and st["settings.json"] == 3
+    assert st["library_index.db"] == st["latest"]["library_index.db"] and st["settings.json"] == 4
     rows = m["database"].list_shows()
     assert rows and rows[0]["folder_name"] == "gd1977-05-08" and rows[0]["plan"] == ""
     s = json.loads((cfg / "settings.json").read_text())

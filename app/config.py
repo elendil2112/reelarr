@@ -69,7 +69,7 @@ DEFAULTS = {
         "auto_file_threshold": 85,   # score 0-100 required to file without review
         "duplicate_policy": "upgrade",  # upgrade | review | file_anyway
         "hold_uncertain_titles": True,  # send shows with unvalidated setlists to Review
-        "new_artist_policy": "auto",    # auto (create folder) | review
+        "new_artist_policy": "review",  # review (first show by a new artist waits for you) | auto
         "default_source_type": "AUD",   # bracket used when no source is detected
         "folder_prefix_style": "slug",  # slug -> gratefuldead2024-06-01 ...; name -> Grateful Dead 2024-06-01 ...
         "official_labels": "",          # comma-separated names of official-release sources

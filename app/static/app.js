@@ -515,7 +515,7 @@ const SETTINGS_LAYOUT = [
     ["auto_file_threshold", "number", "Confidence (0–100) required to file without review"],
     ["duplicate_policy", "select:upgrade,review,file_anyway", "upgrade = compare source (SBD > MTX > AUD), tracks, titles & size — keep the better copy, retire the other to _replaced"],
     ["hold_uncertain_titles", "checkbox", "Send shows to Review when their setlist can't be checked against setlist.fm or known songs — keeps junk titles out of your media server"],
-    ["new_artist_policy", "select:auto,review", "auto = create new artist folders freely"],
+    ["new_artist_policy", "select:review,auto", "review = the first show by an artist not in your library waits in Review; auto = create the folder and file it"],
     ["default_source_type", "select:AUD,AUD.FOB,SBD,MTX,SBD.FM", "Bracket used when no source can be detected — album tags always carry [SOURCE]"],
     ["folder_prefix_style", "select:slug,name", "slug → gratefuldead2024-06-01 · name → Grateful Dead 2024-06-01"],
     ["official_labels", "text", "Names that mark an official release (comma-separated) — e.g. the stores or labels you buy from. Official releases are tagged as such and never replaced by fan recordings. “Official” in a [bracket] always counts"],
