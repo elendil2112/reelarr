@@ -6,6 +6,19 @@ databases first.
 
 ## Unreleased
 
+### Privacy, notices and readable colours
+- README: a **Privacy** section (no telemetry; exactly which services Reelarr
+  contacts, why, and how to turn each off; how to remove everything it
+  stored) and a fuller **What this is for**: Reelarr doesn't host or provide
+  recordings, respect taping and trading policies, no affiliation with the
+  services it uses, no warranty.
+- `THIRD_PARTY_NOTICES.md`: the bundled GeoNames and country data, every
+  Python package and the programs in the Docker image, with their licences.
+- Colour contrast: every text colour now meets WCAG AA (4.5:1) on every
+  surface in both themes. Light mode's amber and teal are a little deeper,
+  and so are white-on-amber buttons; dark mode's error red and violet are a
+  little lighter. `tools/contrast.py` checks it, and a test keeps it that way.
+
 ### Maintenance: sent-back shows wait in Review
 - Shows sent back from **Find problems** are identified again and then wait in
   Review with the problem noted, instead of filing themselves again with the
