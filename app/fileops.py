@@ -113,7 +113,8 @@ def snapshot_tags(path: Path) -> dict:
             frames = a.getall(k)
             out[k] = [str(t) for f in frames for t in getattr(f, "text", [])] if frames else None
         return {"fmt": "id3", "tags": out}
-    except Exception:
+    except Exception as e:
+        db.log("warn", "undo", f"{Path(path).name}: couldn't record its tags before changing them ({e}) — undo won't restore them")
         return {}
 
 

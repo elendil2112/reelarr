@@ -1098,7 +1098,8 @@ def embed_art(folder: Path, data: bytes, mime: str) -> int:
                                desc="Front Cover", data=data))
                     a.save(f)
                     done += 1
-        except Exception:
+        except Exception as e:
+            db.log("warn", "art", f"{f.name}: cover art not embedded ({e})")
             continue
     if not any((folder / n).exists() for n in _ART_FILES):
         ext = ".png" if "png" in mime else ".jpg"
@@ -1444,8 +1445,8 @@ def file_show(show_dir: Path, meta: ShowMeta, cfg: dict, log, b: "fileops.Batch"
     perms.fix_path(artist_dir)
     try:
         library_index.add_show(meta)   # every filed show teaches the index
-    except Exception:
-        pass
+    except Exception as e:
+        log("warn", "index", f"filed, but not added to the library index: {e}")
     return dest
 
 
@@ -1690,8 +1691,9 @@ def process_pair(early: Path, late: Path) -> dict:
             if b.id:
                 try:
                     fileops.undo(b.id)          # put whatever moved back where it was
-                except Exception:
-                    pass
+                except Exception as ue:
+                    db.log("error", "file", f"couldn't put everything back after that failure "
+                        f"({ue}) — Activity → Undo on batch {b.id} will retry")
             for i in (*ids.values(), pair_id):
                 db.update_show(i, status="error", error=f"couldn't combine the early and late show: {e}")
             db.log("error", "pair", f"{early.name} + {late.name}: couldn't combine them: {e}")
@@ -1985,8 +1987,8 @@ def _learn_from_brig_edit(guessed: dict, final: "ShowMeta", log) -> None:
             try:
                 library_index.correction_set("artist", g_artist, f_artist)
                 log("info", "learned", f"artist correction: {g_artist!r} → {f_artist!r}")
-            except Exception:
-                pass
+            except Exception as e:
+                log("warn", "learned", f"artist correction not saved: {e}")
 
     # venue: a corrected venue teaches a venue→(venue,city,state) rule, keyed
     # on both the full wrong string and its head segment (parse paths differ)
@@ -2001,8 +2003,8 @@ def _learn_from_brig_edit(guessed: dict, final: "ShowMeta", log) -> None:
             if _norm(k) and _norm(k) != _norm(final.venue):
                 try:
                     library_index.correction_set("venue", k, trio)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log("warn", "learned", f"venue correction not saved: {e}")
         log("info", "learned",
             f"venue correction: {g_venue!r} → {final.venue!r}")
 
@@ -2012,5 +2014,5 @@ def _learn_from_brig_edit(guessed: dict, final: "ShowMeta", log) -> None:
             library_index._upsert_venue(library_index._conn(),
                                         final.venue, final.city, final.state)
             library_index._conn().commit()
-        except Exception:
-            pass
+        except Exception as e:
+            log("warn", "learned", f"venue not added to the index: {e}")

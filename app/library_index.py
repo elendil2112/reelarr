@@ -326,7 +326,7 @@ def scan(library_dir) -> dict:
         return {"skipped": "scan already running"}
     _scan_state["running"] = True
     started = time.time()
-    folders = 0
+    folders = unreadable = 0
     try:
         library_dir = Path(library_dir)
         if not library_dir.is_dir():
@@ -364,7 +364,10 @@ def scan(library_dir) -> dict:
                     album_meta, _ = parse_album_string(tag("album"))
                     _upsert_venue(c, album_meta.venue, album_meta.city,
                                   album_meta.state)
-                except Exception:
+                except Exception as e:
+                    unreadable += 1
+                    if unreadable <= 5:
+                        db.log("warn", "index", f"library scan skipped {show.name}: {e}")
                     continue
                 if folders % 500 == 0:
                     c.commit()
@@ -376,7 +379,8 @@ def scan(library_dir) -> dict:
         db.log("info", "index",
                f"library scan finished in {time.time()-started:.0f}s — "
                f"{folders} shows, {result['artists']} artists, "
-               f"{result['venues']} venues, {result['hosts']} host mappings")
+               f"{result['venues']} venues, {result['hosts']} host mappings"
+               + (f"; {unreadable} show(s) skipped, tags unreadable" if unreadable else ""))
         return result
     finally:
         _scan_state["running"] = False

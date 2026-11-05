@@ -933,8 +933,8 @@ def api_lma_grab(body: dict = Body(default={})):
         if out.get("grabbed") and config.load()["torrents"].get("enabled"):
             scheduler.run_in_background(torrents.scan, True)
             out["handed_on"] = True
-    except Exception:
-        pass
+    except Exception as e:
+        db.log("warn", "monitor", f"grabbed, but couldn't hand it to the client yet: {e}")
     return out
 
 

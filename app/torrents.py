@@ -241,8 +241,8 @@ def _copy_in(src: Path, watch: Path, move: bool, log) -> Path:
     staging.rename(dest)
     try:
         perms.fix_tree(dest)
-    except Exception:
-        pass
+    except OSError as e:
+        log("warn", "torrent", f"{dest.name}: couldn't set permissions ({e})")
     return dest
 
 

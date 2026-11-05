@@ -1517,7 +1517,9 @@ def read_sidecar(show_dir: Path) -> dict:
         if p.exists():
             try:
                 return json.loads(p.read_text())
-            except Exception:
+            except (OSError, ValueError) as e:
+                from . import database as db
+                db.log("warn", "sidecar", f"{show_dir.name}/{name} is unreadable ({e}) — ignored")
                 return {}
     return {}
 

@@ -375,8 +375,9 @@ def grab_release(rid: int, automatic: bool = False) -> dict:
             if config.load()["torrents"].get("enabled"):
                 from . import scheduler, torrents
                 scheduler.run_in_background(torrents.scan, True)
-        except Exception:
-            pass
+        except Exception as e:
+            db.log("warn", "monitor", f"grabbed, but couldn't hand it to the client yet: {e} "
+                   "— the next torrent check will")
     if res.get("grabbed") or res.get("skipped"):
         _set(rid, "grabbed", "handed to the download client" if res.get("grabbed")
              else "already in the torrent folder")
