@@ -47,6 +47,19 @@ def _title_is_junk(t: str) -> bool:
     return False
 
 
+def _artist_for(folder: Path, library: Path, tag_artist: str = "") -> str:
+    """Who to ask setlist.fm about: the show's own ARTIST tag, else its artist
+    folder — the one directly under the library, even with year folders
+    (Artist/1977/show) in between."""
+    if tag_artist:
+        return tag_artist
+    try:
+        rel = folder.resolve().relative_to(library.resolve())
+    except ValueError:
+        return folder.parent.name
+    return rel.parts[0] if len(rel.parts) > 1 else ""
+
+
 def _read_show_tags(folder: Path):
     """Return (album_meta_from_tags, [(file,title)]) for a filed show.
 
@@ -58,6 +71,7 @@ def _read_show_tags(folder: Path):
     from .metadata import parse_folder_name
 
     album_tag = ""
+    meta_artist = [""]
     titles = []
     for f in sorted(folder.rglob("*")):
         if f.suffix.lower() in AUDIO_EXTS and f.is_file():
@@ -68,7 +82,10 @@ def _read_show_tags(folder: Path):
                     t = (easy.get("title") or [""])[0].strip()
                     if not album_tag:
                         album_tag = (easy.get("album") or [""])[0].strip()
-                except Exception:
+                    if not meta_artist[0]:
+                        meta_artist[0] = (easy.get("artist") or [""])[0].strip()
+                except Exception as e:
+                    db.log("warn", "backtag", f"{f.name}: tags unreadable ({e})")
                     t = ""
             titles.append((f, t))
 
@@ -85,6 +102,7 @@ def _read_show_tags(folder: Path):
                 meta.venue, meta.city, meta.state = fm.venue, fm.city, fm.state
             if not meta.source_type:
                 meta.source_type = fm.source_type
+    meta.artist = meta_artist[0]
     return meta, titles
 
 
@@ -95,8 +113,7 @@ def _propose(folder: Path, cfg: dict):
     if not key:
         return None
     fmeta, titled = _read_show_tags(folder)
-    # artist comes from the parent folder (the artist directory), date from name
-    artist = folder.parent.name
+    artist = _artist_for(folder, Path(cfg["paths"]["library_dir"]), fmeta.artist)
     date = fmeta.date
     if not (artist and date):
         return {"folder": str(folder), "verdict": "skip",
@@ -123,18 +140,25 @@ def _propose(folder: Path, cfg: dict):
     if slf.state and _norm(slf.state) != _norm(fmeta.state):
         changes["state"] = {"from": fmeta.state, "to": slf.state}
 
-    # title cleanup: only touch junk titles, and only if counts line up so the
-    # setlist maps cleanly to the files
+    # title cleanup: only junk titles, and only where the setlist pairs with
+    # the files cleanly — the same pairing filing uses, so a tuning track or an
+    # encore break can't shift every title by one
     audio = [f for f, _ in titled]
-    junk_titles = [t for _, t in titled if _title_is_junk(t)]
+    current = {f.name: t for f, t in titled}
     title_fixes = []
-    counts_align = slf.tracks and abs(len(slf.tracks) - len(audio)) <= 1
-    if junk_titles and counts_align:
-        for i, (f, cur) in enumerate(titled):
-            if i < len(slf.tracks) and _title_is_junk(cur):
-                new = slf.tracks[i]["title"]
-                if new and _norm(new) != _norm(cur):
-                    title_fixes.append({"file": f.name, "from": cur, "to": new})
+    counts_align = False
+    if slf.tracks and any(_title_is_junk(t) for t in current.values()):
+        from . import align
+        pairing = align.plan(audio, slf.tracks)
+        counts_align = bool(pairing["ok"])
+        if counts_align:
+            for e in pairing["entries"]:
+                cur, new = current.get(e["name"], ""), (e.get("title") or "")
+                if e["kind"] == "song" and new and _title_is_junk(cur) \
+                        and _norm(new) != _norm(cur):
+                    title_fixes.append({"file": e["name"], "from": cur, "to": new})
+        else:
+            title_fixes = [{"file": "", "from": "", "to": ""}]   # flags it for Review
 
     if not changes and not title_fixes:
         return {"folder": str(folder), "verdict": "skip",
@@ -152,7 +176,9 @@ def _propose(folder: Path, cfg: dict):
                        f"setlist.fm {slf.venue!r}, {venue_sim:.0%} similar)")
     if title_fixes and not counts_align:
         verdict = "brig"
-        reasons.append("track count doesn't line up with setlist.fm")
+        title_fixes = []
+        reasons.append("setlist.fm's songs don't pair cleanly with the files: " +
+                       "check the titles by hand")
     # a huge venue rewrite with weak similarity is suspicious even if it passed
     if "venue" in changes and 0 < venue_sim < 0.4:
         verdict = "brig"
@@ -165,121 +191,128 @@ def _propose(folder: Path, cfg: dict):
             "slf_venue": slf.venue, "reason": "; ".join(reasons) or "clean match"}
 
 
-def _apply(proposal: dict, cfg: dict) -> bool:
-    """Apply an approved proposal: rewrite tags + rename folder to canonical.
-    Returns True on success."""
+def _write_title(f: Path, new: str):
     from mutagen.flac import FLAC
     from mutagen.id3 import ID3, ID3NoHeaderError, TIT2
+    if f.suffix.lower() == ".flac":
+        a = FLAC(f)
+        a["TITLE"] = new
+        a.save()
+        return
+    try:
+        a = ID3(f)
+    except ID3NoHeaderError:
+        a = ID3()
+    a.setall("TIT2", [TIT2(encoding=3, text=new)])
+    a.save(f)
+
+
+def _write_album(f: Path, album: str, location: str):
+    from mutagen.flac import FLAC
+    from mutagen.id3 import ID3, ID3NoHeaderError, TALB
+    if f.suffix.lower() == ".flac":
+        a = FLAC(f)
+        a["ALBUM"] = album
+        if location:
+            a["COMMENT"] = location
+        a.save()
+        return
+    try:
+        a = ID3(f)
+    except ID3NoHeaderError:
+        a = ID3()
+    a.setall("TALB", [TALB(encoding=3, text=album)])
+    a.save(f)
+
+
+def renamed_folder(name: str, date: str, new_album: str) -> str:
+    """The show folder's new name: whatever comes before the date (the artist
+    prefix, in either naming style) is kept and the rest becomes the new album
+    title. '' when the folder name doesn't contain the show's date — then it's
+    left as it is."""
+    i = name.find(date) if date else -1
+    if i < 0:
+        return ""
+    return re.sub(r'[<>:"/\\|?*]', "", name[:i] + new_album).strip()
+
+
+def _apply(proposal: dict, cfg: dict) -> bool:
+    """Apply an approved proposal: rewrite tags and rename the folder to match.
+    Every change goes through one undoable batch. Returns True only if every
+    file was written."""
     from . import perms
     folder = Path(proposal["folder"])
     if not folder.is_dir():
         return False
     fmeta, titled = _read_show_tags(folder)
     ch = proposal.get("changes", {})
-    if "venue" in ch:
-        fmeta.venue = ch["venue"]["to"]
-    if "city" in ch:
-        fmeta.city = ch["city"]["to"]
-    if "state" in ch:
-        fmeta.state = ch["state"]["to"]
+    for k in ("venue", "city", "state"):
+        if k in ch:
+            setattr(fmeta, k, ch[k]["to"])
 
-    # rewrite junk titles
-    fixes = {tf["file"]: tf["to"] for tf in proposal.get("title_fixes", [])}
     row0 = db.get_show_by_filed(proposal["folder"])
     b = fileops.Batch(f"backtag {folder.name}", kind="backtag",
                       show_id=row0["id"] if row0 else None, dry_run=False,
                       undo_state=fileops.show_undo_state(row0["id"]) if row0 else {})
+    failed = []
+
+    fixes = {tf["file"]: tf["to"] for tf in proposal.get("title_fixes", []) if tf.get("file")}
     for f, _cur in titled:
-        if f.name not in fixes:
-            continue
-        new = clean_track_title(fixes[f.name])
-
-        def _write_title(f, new=new):
-            if f.suffix.lower() == ".flac":
-                a = FLAC(f); a["TITLE"] = new; a.save()
-            else:
-                try:
-                    a = ID3(f)
-                except ID3NoHeaderError:
-                    a = ID3()
-                a.setall("TIT2", [TIT2(encoding=3, text=new)])
-                a.save(f)
-        try:
-            b.retag(f, _write_title, {"title": new})
-        except Exception:
-            pass
-
-    # if venue/city/state changed, rewrite the album tag + rename the folder to
-    # the canonical name so the library stays consistent
-    if any(k in ch for k in ("venue", "city", "state")):
-        # rebuild album string: "YYYY-MM-DD Venue, City, ST [SOURCE ...]"
-        src = fmeta.source_type or "AUD"
-        bracket = fmeta.source_type or ""
-        extras = " ".join(x for x in (fmeta.official, fmeta.shnid, fmeta.recorder) if x)
-        inside = (bracket + (" " + extras if extras else "")).strip() or src
-        loc = ", ".join(p for p in (fmeta.venue, fmeta.city, fmeta.state) if p)
-        album = f"{fmeta.date} {loc} [{inside}]".strip()
-        def _write_album(f):
-            if f.suffix.lower() == ".flac":
-                a = FLAC(f)
-                a["ALBUM"] = album
-                loc2 = ", ".join(p for p in (fmeta.venue, fmeta.city, fmeta.state) if p)
-                if loc2:
-                    a["COMMENT"] = loc2
-                a.save()
-            else:
-                from mutagen.id3 import TALB
-                a = ID3(f)
-                a.setall("TALB", [TALB(encoding=3, text=album)])
-                a.save(f)
-        for f, _cur in titled:
+        if f.name in fixes:
+            new = clean_track_title(fixes[f.name])
             try:
-                b.retag(f, _write_album, {"album": album})
-            except Exception:
-                pass
-        # rename folder: keep the learned artist prefix
-        prefix = re.match(r"^([a-z0-9]+?)\d{4}-\d{2}-\d{2}", folder.name, re.IGNORECASE)
-        pfx = prefix.group(1) if prefix else ""
-        new_name = f"{pfx}{album}"
-        # strip characters unsafe for folders
-        new_name = re.sub(r'[<>:"/\\|?*]', "", new_name).strip()
-        dest = folder.parent / new_name
-        if _norm(dest.name) != _norm(folder.name) and not dest.exists():
+                b.retag(f, lambda f, new=new: _write_title(f, new), {"title": new})
+            except Exception as e:
+                failed.append(f"{f.name}: {e}")
+
+    if any(k in ch for k in ("venue", "city", "state")):
+        if not fmeta.source_type and not fmeta.bracket_override:
+            fmeta.source_type = cfg["filing"].get("default_source_type", "AUD")
+        album = fmeta.album_title
+        location = ", ".join(p for p in (fmeta.venue, fmeta.city, fmeta.state) if p)
+        for f, _cur in titled:
+            if f.suffix.lower() not in TAGGABLE_EXTS:
+                continue
+            try:
+                b.retag(f, lambda f: _write_album(f, album, location), {"album": album})
+            except Exception as e:
+                failed.append(f"{f.name}: {e}")
+        new_name = renamed_folder(folder.name, fmeta.date, album)
+        dest = folder.parent / new_name if new_name else folder
+        if not failed and new_name and dest != folder and not dest.exists():
             try:
                 b.move(folder, dest)
                 folder = dest
-            except OSError:
-                pass
+            except OSError as e:
+                failed.append(f"rename to {new_name}: {e}")
+        elif new_name and dest.exists() and dest != folder:
+            db.log("warn", "backtag", f"{folder.name}: not renamed, {new_name} already exists")
 
     try:
-        from . import perms
         perms.fix_tree(folder)
-    except Exception:
-        pass
+    except OSError as e:
+        db.log("warn", "backtag", f"{folder.name}: permissions not fixed ({e})")
 
-    # update the DB row + seed the corpus/gazetteer with the confirmed data
+    if failed:
+        db.log("error", "backtag", f"{folder.name}: {len(failed)} change(s) failed — "
+               + "; ".join(failed[:5]) + " (Activity → Undo puts back what was changed)")
+
+    # update the DB row + seed the gazetteer with the confirmed data
     row = db.get_show_by_filed(proposal["folder"])
     if row:
         m = json.loads(row["meta"] or "{}")
         m.update({"venue": fmeta.venue, "city": fmeta.city, "state": fmeta.state})
-        db.update_show(row["id"], filed_path=str(folder), current_path=str(folder),
-                       meta=m)
-    if "venue" in ch and fmeta.venue and fmeta.city:
-        try:
-            c = library_index._conn()
-            library_index._upsert_venue(c, fmeta.venue, fmeta.city, fmeta.state)
-            c.commit()
-        except Exception:
-            pass
+        db.update_show(row["id"], filed_path=str(folder), current_path=str(folder), meta=m)
+    if not failed and "venue" in ch and fmeta.venue and fmeta.city:
+        c = library_index._conn()
+        library_index._upsert_venue(c, fmeta.venue, fmeta.city, fmeta.state)
+        c.commit()
     # teach the venue correction so the live pipeline fixes it too
-    if "venue" in ch and ch["venue"]["from"]:
-        try:
-            library_index.correction_set("venue", ch["venue"]["from"],
-                                         {"venue": fmeta.venue, "city": fmeta.city,
-                                          "state": fmeta.state})
-        except Exception:
-            pass
-    return True
+    if not failed and "venue" in ch and ch["venue"]["from"]:
+        library_index.correction_set("venue", ch["venue"]["from"],
+                                     {"venue": fmeta.venue, "city": fmeta.city,
+                                      "state": fmeta.state})
+    return not failed
 
 
 def _iter_library_shows(library: Path):
