@@ -33,7 +33,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - name: Type check
-        run: mypy
+        run: python -m mypy
       - name: JavaScript syntax
         run: for f in app/static/*.js; do node --check "$f"; done
 
@@ -49,7 +49,16 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg p7zip-full
+      - name: Install ffmpeg and 7-Zip
+        # the runner's package mirror sometimes stalls: give each try a limit and retry
+        run: |
+          for i in 1 2 3; do
+            timeout 180 sudo apt-get update -o Acquire::Retries=3 \
+              && timeout 300 sudo apt-get install -y --no-install-recommends ffmpeg p7zip-full \
+              && exit 0
+            echo "apt attempt $i stalled or failed — retrying"; sleep 10
+          done
+          exit 1
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest tests -q
 

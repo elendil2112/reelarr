@@ -105,12 +105,12 @@ def snapshot_tags(path: Path) -> dict:
                     "tags": {k: (list(a[k]) if k in a else None) for k in _FLAC_KEYS}}
         from mutagen.id3 import ID3, ID3NoHeaderError
         try:
-            a = ID3(path)
+            tags = ID3(path)
         except ID3NoHeaderError:
             return {"fmt": "id3", "tags": dict.fromkeys(_ID3_FRAMES), "noheader": True}
         out = {}
         for k in _ID3_FRAMES:
-            frames = a.getall(k)
+            frames = tags.getall(k)
             out[k] = [str(t) for f in frames for t in getattr(f, "text", [])] if frames else None
         return {"fmt": "id3", "tags": out}
     except Exception as e:
@@ -135,18 +135,18 @@ def restore_tags(path: Path, snap: dict) -> bool:
             return True
         from mutagen import id3
         try:
-            a = id3.ID3(path)
+            tags = id3.ID3(path)
         except id3.ID3NoHeaderError:
-            a = id3.ID3()
+            tags = id3.ID3()
         for k, v in snap["tags"].items():
-            a.delall(k)
+            tags.delall(k)
             if v:
                 frame = getattr(id3, k)
                 if k == "COMM":
-                    a.add(frame(encoding=3, lang="eng", desc="", text=v))
+                    tags.add(frame(encoding=3, lang="eng", desc="", text=v))
                 else:
-                    a.add(frame(encoding=3, text=v))
-        a.save(path)
+                    tags.add(frame(encoding=3, text=v))
+        tags.save(path)
         return True
     except Exception:
         return False

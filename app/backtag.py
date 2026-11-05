@@ -200,11 +200,11 @@ def _write_title(f: Path, new: str):
         a.save()
         return
     try:
-        a = ID3(f)
+        tags = ID3(f)
     except ID3NoHeaderError:
-        a = ID3()
-    a.setall("TIT2", [TIT2(encoding=3, text=new)])
-    a.save(f)
+        tags = ID3()
+    tags.setall("TIT2", [TIT2(encoding=3, text=new)])
+    tags.save(f)
 
 
 def _write_album(f: Path, album: str, location: str):
@@ -218,11 +218,11 @@ def _write_album(f: Path, album: str, location: str):
         a.save()
         return
     try:
-        a = ID3(f)
+        tags = ID3(f)
     except ID3NoHeaderError:
-        a = ID3()
-    a.setall("TALB", [TALB(encoding=3, text=album)])
-    a.save(f)
+        tags = ID3()
+    tags.setall("TALB", [TALB(encoding=3, text=album)])
+    tags.save(f)
 
 
 def renamed_folder(name: str, date: str, new_album: str) -> str:

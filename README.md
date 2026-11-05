@@ -322,7 +322,7 @@ deletes, and can undo — but keep a backup of anything you can't replace.
 pip install -r requirements-dev.txt
 python -m pytest tests -q     # needs ffmpeg
 ruff check .                  # lint
-mypy                          # type check
+python -m mypy                # type check
 ```
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security problems: please report them

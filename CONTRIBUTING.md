@@ -11,7 +11,7 @@ pip install -r requirements-dev.txt
 python -m app                 # http://127.0.0.1:8189
 python -m pytest tests -q     # needs ffmpeg on PATH
 ruff check .                  # lint
-mypy                          # type check
+python -m mypy                # type check
 ```
 
 ## Ground rules

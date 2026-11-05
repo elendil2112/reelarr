@@ -1173,11 +1173,11 @@ def embed_art(folder: Path, data: bytes, mime: str) -> int:
                     a.save()
                     done += 1
             elif f.suffix.lower() == ".mp3":
-                a = ID3(f)
-                if not a.getall("APIC"):
-                    a.add(APIC(encoding=3, mime=mime, type=3,
-                               desc="Front Cover", data=data))
-                    a.save(f)
+                tags = ID3(f)
+                if not tags.getall("APIC"):
+                    tags.add(APIC(encoding=3, mime=mime, type=3,
+                                  desc="Front Cover", data=data))
+                    tags.save(f)
                     done += 1
         except Exception as e:
             db.log("warn", "art", f"{f.name}: cover art not embedded ({e})")
