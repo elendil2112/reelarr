@@ -453,6 +453,11 @@ def _copy_sqlite(src: Path, dest: Path):
         s.close()
 
 
+# ── Legacy: Barbosa ──────────────────────────────────────────────────────────
+# Reelarr grew out of Barbosa, a private tool that was never published. The
+# code below only runs for someone moving an existing Barbosa install over;
+# on any other install it finds nothing and does nothing.
+
 def carry_over_barbosa(cfg_dir: Path) -> list:
     """First start of Reelarr beside (or instead of) Barbosa: copy its state
     under the new names. The Barbosa files themselves are left untouched, so

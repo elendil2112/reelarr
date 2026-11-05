@@ -1509,7 +1509,7 @@ def parse_filenames(show_dir: Path, aliases: dict) -> ShowMeta:
 
 # ── Sidecar ──────────────────────────────────────────────────────────────────
 
-SIDECAR_NAMES = (".reelarr.json", ".barbosa.json")
+SIDECAR_NAMES = (".reelarr.json", ".barbosa.json")   # .barbosa.json: legacy, see migrations.py
 
 
 def read_sidecar(show_dir: Path) -> dict:

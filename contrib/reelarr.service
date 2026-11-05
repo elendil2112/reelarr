@@ -1,0 +1,29 @@
+# Run Reelarr as a background service on Linux (systemd, per user).
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp contrib/reelarr.service ~/.config/systemd/user/
+#   # edit WorkingDirectory below if Reelarr isn't in ~/reelarr
+#   ./run.sh            # once, by hand, so it sets up .venv
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now reelarr
+#   loginctl enable-linger "$USER"   # keep it running when you're logged out
+#
+# Logs: journalctl --user -u reelarr -f
+# Update: cd ~/reelarr && git pull && systemctl --user restart reelarr
+
+[Unit]
+Description=Reelarr — identify, tag and file live concert recordings
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/reelarr
+ExecStart=%h/reelarr/run.sh
+Restart=on-failure
+RestartSec=10
+# Uncomment to reach Reelarr from other machines (keep the login on):
+# Environment=REELARR_HOST=0.0.0.0
+# Environment=REELARR_PORT=8189
+
+[Install]
+WantedBy=default.target

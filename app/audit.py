@@ -478,6 +478,7 @@ def job_state(key: str) -> dict:
 def list_exports() -> list:
     if not EXPORT_DIR.is_dir():
         return []
+    # barbosa_audit_*: legacy exports from before the rename
     return sorted((p.name for p in [*EXPORT_DIR.glob("reelarr_audit_*.json"), *EXPORT_DIR.glob("barbosa_audit_*.json")]),
                   reverse=True)[:10]
 
