@@ -113,3 +113,14 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Anyone can pull it (no login)
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        run: |
+          docker logout ghcr.io
+          image="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/reelarr:${{ github.ref == 'refs/heads/main' && 'edge' || github.ref_name }}"
+          image="${image/:v/:}"
+          if ! docker manifest inspect "$image" > /dev/null; then
+            echo "::error::$image can't be pulled without logging in. On GitHub: your profile → Packages → reelarr → Package settings → Change visibility → Public."
+            exit 1
+          fi
+          echo "$image is public"

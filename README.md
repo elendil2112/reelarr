@@ -33,7 +33,7 @@ Reelarr learns the correction for every show after it.
   <img src="docs/screenshots/review.png" width="49%" alt="Review: shows Reelarr wasn't sure about, ready to correct">
 </p>
 
-> Version 0.1.0 — the first public release. See [`CHANGELOG.md`](CHANGELOG.md).
+> Version 0.2.0. See [`CHANGELOG.md`](CHANGELOG.md).
 >
 > This project is entirely vibecoded with Claude Opus 5.5.
 
