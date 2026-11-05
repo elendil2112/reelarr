@@ -734,7 +734,7 @@ $("#btn-return").addEventListener("click", async () => {
     $("#btn-return").disabled = false;
     $("#return-result").textContent = r.status === "error"
       ? "✗ " + (r.error || "failed")
-      : `${r.moved} show(s) back in the watch folder — they'll be reprocessed on the next scan` +
+      : `${r.moved} show(s) back in the watch folder — each one will wait in Review after the next scan` +
         (r.skipped ? ` (${r.skipped} had no folder)` : "");
     $("#btn-suspects").click();
   });

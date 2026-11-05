@@ -381,7 +381,8 @@ def export_report() -> str:
 
 def return_suspects_to_watch() -> dict:
     """Move every flagged show back into the watch folder so the current
-    (repaired) rules reprocess it. Records flip back to pending; emptied
+    (repaired) rules reprocess it. Each one waits in Review afterwards rather
+    than filing itself again. Records flip back to pending; emptied
     artist/year folders are pruned."""
     from datetime import datetime
     from . import fileops, perms
@@ -408,6 +409,11 @@ def return_suspects_to_watch() -> dict:
                           show_id=row["id"] if row else None, dry_run=False,
                           undo_state=fileops.show_undo_state(row["id"]) if row else {})
         b.move(p, dest)
+        # the note that holds it in Review when it comes back through
+        from .pipeline import REVIEW_MARKER
+        (dest / REVIEW_MARKER).write_text(json.dumps(
+            {"reason": "sent back from Maintenance", "was": str(p),
+             "flags": s.get("flags") or []}))
         perms.fix_tree(dest)
         if row:
             db.update_show(row["id"], status="pending", current_path=str(dest),
