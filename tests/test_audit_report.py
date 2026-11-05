@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_safety import fresh_app, make_audio, offline  # noqa: E402
+from test_safety import fresh_app, make_audio, offline
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 
@@ -310,7 +310,7 @@ def test_folder_prefix_of_another_artist_holds_the_show(tmp_path):
         (tmp_path / "music" / a).mkdir(parents=True)
     show = _show(tmp_path, "toad1992-07-28",
                  "Dave Matthews Band\n1992-07-28\nTrax Nightclub\nCharlottesville, VA\nSource: SBD" + SETLIST)
-    r, meta, notes = _run(m, show)
+    r, _meta, notes = _run(m, show)
     assert r["status"] == "review" and "toad" in notes.lower()
 
 

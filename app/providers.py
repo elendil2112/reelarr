@@ -24,7 +24,7 @@ import importlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from collections.abc import Callable
 
 ENTRY_POINT_GROUP = "reelarr.providers"
 
@@ -36,11 +36,11 @@ class Provider:
     settings_defaults: dict = field(default_factory=dict)
     secret_fields: tuple = ()
     router: object = None                       # fastapi.APIRouter
-    static_dir: Optional[Path] = None
+    static_dir: Path | None = None
     script: str = ""                            # file in static_dir
     views: list = field(default_factory=list)   # [{"id": "...", "label": "..."}]
     settings_layout: list = field(default_factory=list)   # same shape as app.js SETTINGS_LAYOUT items
-    status: Callable[[], dict] = lambda: {}
+    status: Callable[[], dict] = dict
     schedule: Callable[[object], None] = lambda scheduler: None
     on_startup: Callable[[], None] = lambda: None
 

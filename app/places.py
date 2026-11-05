@@ -70,10 +70,10 @@ def fold(s: str) -> str:
 # ── Data, loaded on first use ────────────────────────────────────────────────
 
 _lock = threading.Lock()
-_cities = None          # folded name → [(country, admin, population)]
-_country_name = {}      # ISO2 → name for the tag
-_country_alias = {}     # folded alias → ISO2
-_state_name = {}        # folded US state / CA province name → code
+_cities: dict | None = None   # folded name → [(country, admin, population)]
+_country_name: dict = {}      # ISO2 → name for the tag
+_country_alias: dict = {}     # folded alias → ISO2
+_state_name: dict = {}        # folded US state / CA province name → code
 
 
 def _load():
@@ -94,7 +94,7 @@ def _load():
                     continue
                 code, name, aliases = line.rstrip("\n").split("\t")
                 _country_name[code] = name
-                for a in aliases.split("|") + [name]:
+                for a in [*aliases.split("|"), name]:
                     _country_alias.setdefault(fold(a), code)
         cities = {}
         try:
@@ -155,10 +155,11 @@ def places_named(city: str) -> list:
     """Every (country, US state / CA province, population) called this,
     biggest first."""
     _load()
-    hits = list(_cities.get(_key(city), []))
+    cities = _cities or {}
+    hits = list(cities.get(_key(city), []))
     # "New York City" / "Mexico City" / "Quebec City" are listed without "City"
     if not hits and _key(city).endswith("city"):
-        hits = list(_cities.get(_key(city)[:-4], []))
+        hits = list(cities.get(_key(city)[:-4], []))
     return sorted(hits, key=lambda h: -h[2])
 
 
@@ -172,7 +173,7 @@ def _place_tag(cc: str, admin: str) -> str:
 
 def _dominant(hits: list, ratio: float = DOMINANCE):
     """The one place a bare city name means, or None if it's a toss-up."""
-    best = {}
+    best: dict = {}
     for cc, admin, pop in hits:
         k = (cc, admin if cc in ("US", "CA") else "")
         best[k] = max(best.get(k, 0), pop)
@@ -193,7 +194,7 @@ def _library_vote(city: str) -> str:
         return ""
     if not votes:
         return ""
-    norm = Counter()
+    norm: Counter = Counter()
     for st, n in votes.items():
         s = normalise(st)
         if s:
@@ -267,7 +268,7 @@ def resolve(city: str, state: str) -> str:
             return raw
         if f in _state_name:
             return _state_name[f]
-        cc = _country_alias.get(f)
+        cc = _country_alias.get(f, "")
         if cc in ("US", "CA"):                  # 'Toronto, Canada' → 'ON'
             inside = [h for h in hits if h[0] == cc]
             d = _dominant(inside)
@@ -301,7 +302,7 @@ def _is_city_not_region(s: str) -> bool:
     return bool(places_named(s))
 
 
-def apply(meta, provenance: dict = None) -> bool:
+def apply(meta, provenance: dict | None = None) -> bool:
     """Resolve meta.state in place from meta.city. True if it changed."""
     try:
         from . import config

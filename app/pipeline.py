@@ -144,7 +144,7 @@ def derive_host_artist(artist: str, library_dir: Path, cfg: dict):
     if learned:
         return learned, True
     # the full name IS a known act ("Dead & Company") — never split it
-    canon, hit = canonical_artist(artist, library_dir, cfg)
+    _canon, hit = canonical_artist(artist, library_dir, cfg)
     if hit:
         return "", True
 
@@ -219,7 +219,7 @@ def merge(sources_by_name: dict) -> tuple:
             merged.tracks = meta.tracks
             provenance["tracks"] = src
             break
-    for src, meta in sources_by_name.items():
+    for meta in sources_by_name.values():
         if meta.notes and not merged.notes:
             merged.notes = meta.notes
     return merged, provenance, agreement
@@ -365,14 +365,15 @@ def dedupe_formats(show_dir: Path, log, b: "fileops.Batch") -> int:
     FLAC/ and MP3/ folders are still de-duplicated, while identically numbered
     tracks in different disc folders are left alone — they're different songs.
     """
-    groups = {}
+    groups: dict = {}
     for p in show_dir.rglob("*"):
         if p.is_file() and p.suffix.lower() in _FMT_RANK:
             stem = re.sub(r"[^a-z0-9]", "", p.stem.lower())
             if stem:
                 groups.setdefault((_disc_context(p, show_dir), stem), []).append(p)
 
-    removed, culled = 0, []
+    removed = 0
+    culled: list = []
     for files in groups.values():
         if len(files) < 2:
             continue
@@ -422,7 +423,7 @@ def _probe_audio(path: Path) -> dict:
             ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
              "stream=sample_fmt,bits_per_raw_sample,bits_per_sample,sample_rate,duration",
              "-show_entries", "format=duration", "-of", "json", str(path)],
-            capture_output=True, timeout=60, text=True)
+            check=False, capture_output=True, timeout=60, text=True)
         data = json.loads(r.stdout or "{}")
         st = (data.get("streams") or [{}])[0]
         bits = int(st.get("bits_per_raw_sample") or 0) or int(st.get("bits_per_sample") or 0)
@@ -493,7 +494,7 @@ def _tar_refusal(tf: "tarfile.TarFile", left) -> tuple:
 def _sevenzip_refusal(exe: str, arc: Path, left) -> tuple:
     """Look inside before extracting. Anything we can't list, we don't open."""
     try:
-        r = subprocess.run([exe, "l", "-slt", "-ba", str(arc)], capture_output=True,
+        r = subprocess.run([exe, "l", "-slt", "-ba", str(arc)], check=False, capture_output=True,
                            text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as e:
         return f"couldn't look inside it ({e})", 0
@@ -555,7 +556,7 @@ def prep_folder(show_dir: Path, cfg: dict, log, b: "fileops.Batch"):
                     if why:
                         log("warn", "extract", f"not unzipping {z.name}: {why}")
                         continue
-                    zf.extractall(z.parent)        # zipfile drops absolute and ../ paths
+                    zf.extractall(z.parent)  # noqa: S202 — zipfile drops absolute and ../ paths; size checked above
                 spent += size
                 _done_with_archive(z, "unzipped")
             except Exception as e:
@@ -572,7 +573,7 @@ def prep_folder(show_dir: Path, cfg: dict, log, b: "fileops.Batch"):
                     if why:
                         log("warn", "extract", f"not untarring {t.name}: {why}")
                         continue
-                    tf.extractall(t.parent, filter="data")   # blocks path traversal and links out
+                    tf.extractall(t.parent, filter="data")
                 spent += size
                 _done_with_archive(t, "untarred")
             except Exception as e:
@@ -588,7 +589,7 @@ def prep_folder(show_dir: Path, cfg: dict, log, b: "fileops.Batch"):
                     log("warn", "extract", f"not extracting {arc.name}: {why}")
                     continue
                 r = subprocess.run([sevenzip, "x", "-y", "-p-", f"-o{arc.parent}",
-                                    str(arc)], capture_output=True, timeout=1800)
+                                    str(arc)], check=False, capture_output=True, timeout=1800)
                 spent += size                       # counted even if it stopped partway
                 if r.returncode == 0:
                     _done_with_archive(arc, "extracted")
@@ -634,7 +635,7 @@ def prep_folder(show_dir: Path, cfg: dict, log, b: "fileops.Batch"):
         probe = _probe_audio(src)
         cmd = flac_command(src, out, target, probe)
         try:
-            r = subprocess.run(cmd, capture_output=True, timeout=600)
+            r = subprocess.run(cmd, check=False, capture_output=True, timeout=600)
             if r.returncode != 0 or not out.exists():
                 log("warn", "convert", f"ffmpeg failed on {src.name}")
                 if out.exists():
@@ -888,7 +889,7 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         from_slf = provenance.get("tracks") == "setlistfm"
         count_ok = alignment is None or alignment["ok"]
         if not count_ok and from_slf:
-            titles_uncertain = alignment["note"]
+            titles_uncertain = (alignment or {}).get("note", "")
         # unknown artist with no corpus yet: can't validate, so trust setlist.fm
         # but be wary of purely-local titles
         corpus_size = library_index.songs_count_for(merged.artist)
@@ -897,7 +898,7 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
                 titles_uncertain = (f"only {int(recog*100)}% of titles match known "
                                     f"{merged.artist} songs")
             elif not count_ok:
-                titles_uncertain = alignment["note"]
+                titles_uncertain = (alignment or {}).get("note", "")
             elif corpus_size < 5 and not slf_meta:
                 # no corpus and no setlist.fm confirmation — can't vouch for these
                 if _looks_unreliable(merged.tracks):
@@ -1244,7 +1245,8 @@ def artist_folder_conventions(artist_dir: Path):
     Prefixes are learned verbatim from existing names ('trey', 'gd',
     'Trey Anastasio ' ...). None = nothing to learn (new/empty artist)."""
     from collections import Counter
-    show_prefixes, year_prefixes = Counter(), Counter()
+    show_prefixes: Counter = Counter()
+    year_prefixes: Counter = Counter()
     if artist_dir.is_dir():
         for child in artist_dir.iterdir():
             if not child.is_dir():
@@ -1379,7 +1381,7 @@ def safe_name(name: str) -> str:
 
 
 def canonical_folder_name(meta: ShowMeta, cfg: dict,
-                          learned_prefix: str = None) -> str:
+                          learned_prefix: str | None = None) -> str:
     style = cfg["filing"]["folder_prefix_style"]
     host = meta.album_artist or meta.artist
     if learned_prefix is not None:
@@ -1468,7 +1470,7 @@ def _mass_tagged(tracks: list) -> bool:
     counts = Counter(titles)
     if len(counts) == 1:
         return True
-    top, n = counts.most_common(1)[0]
+    _top, n = counts.most_common(1)[0]
     # a genuine reprise repeats 2-3x; mass-tag has one title on ~everything
     return n / len(tracks) >= 0.8 and n >= 4
 
@@ -1608,9 +1610,9 @@ def process_show(show_dir: Path) -> dict:
             needs_review = True
             note = (note + " · " if note else "") + f"New artist: {meta.artist}"
 
-        common = dict(confidence=conf, meta=meta.to_dict(),
-                      provenance=result["provenance"], missing=missing,
-                      notes=note)
+        common = {"confidence": conf, "meta": meta.to_dict(),
+                      "provenance": result["provenance"], "missing": missing,
+                      "notes": note}
 
         if needs_review:
             db.update_show(show_id, status="review", **common)
@@ -1704,7 +1706,7 @@ def process_pair(early: Path, late: Path) -> dict:
     # dry run: identify both halves where they are and say what would happen
     def log(level, event, detail=""):
         db.log(level, event, f"{early.name} + {late.name}: {detail}")
-    ids = [db.upsert_show(str(p), status="processing") for p in (early, late)]
+    half_ids = [db.upsert_show(str(p), status="processing") for p in (early, late)]
     try:
         result = pairs.combine(identify(early, cfg, log), identify(late, cfg, log), early, late)
         meta, conf, missing = result["meta"], result["confidence"], result["missing"]
@@ -1713,8 +1715,8 @@ def process_pair(early: Path, late: Path) -> dict:
         b.mkdir(parent)
         b.move(early, parent / early.name)
         b.move(late, parent / late.name)
-        common = dict(confidence=conf, meta=meta.to_dict(), provenance=result["provenance"],
-                      missing=missing)
+        common = {"confidence": conf, "meta": meta.to_dict(), "provenance": result["provenance"],
+                      "missing": missing}
         if missing or conf < threshold:
             note = (f"Dry run: early + late show — would combine with {late.name} "
                     f"and send to Review (confidence {conf}"
@@ -1727,13 +1729,13 @@ def process_pair(early: Path, late: Path) -> dict:
             b.note("tags", files=_count_audio(early) + _count_audio(late), album=meta.album_title,
                    discs="1 = early show, 2 = late show")
             note = f"Dry run: early + late show — would combine with {late.name} and file to {dest}"
-        out = _plan(ids[0], b, log, note, dest=dest, **common)
-        db.update_show(ids[1], status="planned", confidence=conf,
+        out = _plan(half_ids[0], b, log, note, dest=dest, **common)
+        db.update_show(half_ids[1], status="planned", confidence=conf,
                        notes=f"Dry run: the late show of {early.name} — they'd be filed together",
                        plan=json.dumps({"dest": dest, "ops": b.plan}))
         return out
     except Exception as e:
-        for i in ids:
+        for i in half_ids:
             db.update_show(i, status="error", error=str(e))
         log("error", "error", str(e))
         return {"status": "error", "error": str(e)}

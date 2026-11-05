@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_safety import fresh_app  # noqa: E402
-from test_auth import client, setup_admin  # noqa: E402
+from test_safety import fresh_app
+from test_auth import client, setup_admin
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -168,7 +168,7 @@ def test_empty_media_mount_is_explained(tmp_path, monkeypatch):
     assert setup.media_problem() == "empty"            # hidden files don't count
     (media / "music").mkdir()
     assert setup.media_problem() == ""
-    monkeypatch.setattr(setup, "roots", lambda: [])
+    monkeypatch.setattr(setup, "roots", list)
     assert setup.media_problem() == "no_mount"
     monkeypatch.setattr(paths, "in_container", lambda: False)
     assert setup.media_problem() == ""                 # bare metal sees the whole disk

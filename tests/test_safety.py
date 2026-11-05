@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ff
 
 # ── harness ──────────────────────────────────────────────────────────────────
 
-def fresh_app(tmp: Path, settings: dict = None):
+def fresh_app(tmp: Path, settings: dict | None = None):
     """Import the app against a brand-new config/watch/library trio."""
     for d in ("config", "watch", "music"):
         (tmp / d).mkdir(exist_ok=True)
@@ -39,7 +39,7 @@ def fresh_app(tmp: Path, settings: dict = None):
     return mods
 
 
-def offline(settings: dict = None) -> dict:
+def offline(settings: dict | None = None) -> dict:
     s = {"sources": {"use_internet_archive": False, "use_setlistfm": False,
                      "use_musicbrainz_genre": False},
          "watcher": {"audio_source_analysis": False},
@@ -169,7 +169,7 @@ def test_failed_step_rolls_back_and_names_backup(tmp_path, monkeypatch):
     def boom(c):
         c.execute("ALTER TABLE shows ADD COLUMN half_done TEXT")
         raise RuntimeError("simulated failure")
-    steps = mig.MAIN_STEPS[:2] + [(3, "boom", boom)]
+    steps = [*mig.MAIN_STEPS[:2], (3, "boom", boom)]
     with pytest.raises(mig.MigrationError, match="backups"):
         mig.migrate_db(db_path, steps, "reelarr.db")
     c = sqlite3.connect(db_path)

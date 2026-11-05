@@ -6,13 +6,14 @@ import json
 import os
 import copy
 import threading
+from typing import Any
 
 from . import paths
 from .migrations import write_settings, LATEST
 CONFIG_DIR = paths.config_dir()
 SETTINGS_PATH = CONFIG_DIR / "settings.json"
 
-DEFAULTS = {
+DEFAULTS: dict[str, Any] = {
     # ── Paths (inside the container; host paths are set in docker-compose) ──
     "paths": {
         "watch_dir": paths.default_watch_dir(),
@@ -198,8 +199,8 @@ def _deep_merge(base: dict, override: dict, _path: tuple = ()) -> dict:
     out = copy.deepcopy(base)
     for k, v in (override or {}).items():
         if isinstance(v, dict) and isinstance(out.get(k), dict) \
-                and (_path + (k,)) not in _REPLACE_WHOLE:
-            out[k] = _deep_merge(out[k], v, _path + (k,))
+                and ((*_path, k)) not in _REPLACE_WHOLE:
+            out[k] = _deep_merge(out[k], v, (*_path, k))
         else:
             out[k] = v
     return out

@@ -53,16 +53,16 @@ class TorrentInfo:
     # For the Queue page. None = the client didn't say.
     status: str = ""         # downloading | queued | paused | stalled | checking |
                              # metadata | seeding | error  (same words for every client)
-    queue: int = None        # position in the client's download queue, 1 = next
-    size: int = None         # bytes wanted
-    done: int = None         # bytes downloaded
-    dl_speed: int = None     # bytes/s
-    ul_speed: int = None     # bytes/s
-    eta: int = None          # seconds; None = unknown / never
-    seeds: int = None
-    peers: int = None
-    ratio: float = None
-    added: float = None      # epoch seconds
+    queue: int | None = None        # position in the client's download queue, 1 = next
+    size: int | None = None         # bytes wanted
+    done: int | None = None         # bytes downloaded
+    dl_speed: int | None = None     # bytes/s
+    ul_speed: int | None = None     # bytes/s
+    eta: int | None = None          # seconds; None = unknown / never
+    seeds: int | None = None
+    peers: int | None = None
+    ratio: float | None = None
+    added: float | None = None      # epoch seconds
 
     def to_dict(self) -> dict:
         from dataclasses import asdict
@@ -104,16 +104,16 @@ def _bdecode(data: bytes, i: int, depth: int = 0):
         return int(data[i + 1:j]), j + 1
     if t == b"l":
         i += 1
-        out = []
+        items = []
         while data[i:i + 1] != b"e":
             if i >= len(data):
                 raise ValueError("truncated torrent")
             v, i = _bdecode(data, i, depth + 1)
-            out.append(v)
-        return out, i + 1
+            items.append(v)
+        return items, i + 1
     if t == b"d":
         i += 1
-        out = {}
+        out: dict = {}
         while data[i:i + 1] != b"e":
             if i >= len(data):
                 raise ValueError("truncated torrent")

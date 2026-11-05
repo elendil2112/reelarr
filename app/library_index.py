@@ -15,6 +15,7 @@ import re
 import sqlite3
 import threading
 import time
+from typing import Any
 from pathlib import Path
 
 from mutagen import File as MutagenFile
@@ -134,7 +135,7 @@ def venue_lookup(venue: str):
     return (r["venue"], r["city"], r["state"]) if r else None
 
 
-_city_cache = {"at": 0.0, "map": {}}
+_city_cache: dict[str, Any] = {"at": 0.0, "map": {}}
 
 
 def city_states(city: str) -> dict:
@@ -143,7 +144,7 @@ def city_states(city: str) -> dict:
     import time as _t
     from .places import fold
     if _t.time() - _city_cache["at"] > 300:
-        m = {}
+        m: dict = {}
         try:
             for r in _conn().execute("SELECT city, state FROM venues WHERE city != '' AND state != ''"):
                 d = m.setdefault(fold(r["city"]), {})
@@ -238,11 +239,11 @@ def purge_bad_corrections() -> list:
     return gone
 
 
-def corrections_list(kind: str = None):
+def corrections_list(kind: str | None = None):
     """All learned corrections, for review/management in the GUI."""
     import json as _json
     q = "SELECT kind, wrong_norm, right FROM corrections"
-    args = ()
+    args: tuple = ()
     if kind:
         q += " WHERE kind=?"
         args = (kind,)
@@ -336,7 +337,7 @@ def scan(library_dir) -> dict:
             if not artist_dir.is_dir() or artist_dir.name.startswith((".", "_")):
                 continue
             _upsert_artist(c, artist_dir.name)
-            show_dirs = []
+            show_dirs: list = []
             for child in artist_dir.iterdir():
                 if not child.is_dir():
                     continue

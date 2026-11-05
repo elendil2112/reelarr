@@ -101,12 +101,26 @@ def upsert_show(path: str, **fields) -> int:
             cols[k] = json.dumps(v) if isinstance(v, (dict, list)) else v
     keys = ",".join(cols)
     q = ",".join("?" for _ in cols)
-    cur = _conn().execute(f"INSERT INTO shows ({keys}) VALUES ({q})", list(cols.values()))
+    cur = _conn().execute(f"INSERT INTO shows ({keys}) VALUES ({q})",  # noqa: S608 — fixed column list
+                          list(cols.values()))
     _conn().commit()
-    return cur.lastrowid
+    return cur.lastrowid or 0
+
+
+def _show_columns() -> set:
+    global _SHOW_COLS
+    if _SHOW_COLS is None:
+        _SHOW_COLS = {r[1] for r in _conn().execute("PRAGMA table_info(shows)")}
+    return _SHOW_COLS or set()
+
+
+_SHOW_COLS: set | None = None
 
 
 def update_show(show_id: int, **fields):
+    bad = set(fields) - _show_columns()
+    if bad:
+        raise ValueError(f"not a show field: {', '.join(sorted(bad))}")
     sets, vals = ["updated_at=?"], [time.time()]
     for k, v in fields.items():
         if isinstance(v, (dict, list)):
@@ -114,7 +128,7 @@ def update_show(show_id: int, **fields):
         sets.append(f"{k}=?")
         vals.append(v)
     vals.append(show_id)
-    _conn().execute(f"UPDATE shows SET {', '.join(sets)} WHERE id=?", vals)
+    _conn().execute(f"UPDATE shows SET {', '.join(sets)} WHERE id=?", vals)  # noqa: S608 — columns checked above
     _conn().commit()
 
 

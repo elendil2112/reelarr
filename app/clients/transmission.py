@@ -4,6 +4,7 @@ Transmission answers the first request with 409 and a session id header, which
 you then echo on every call; this handles that automatically. Optional HTTP
 basic auth. Labels are native from Transmission 3.0 onwards.
 """
+from typing import ClassVar
 import base64
 import json
 from pathlib import Path
@@ -140,12 +141,12 @@ class TransmissionClient(DownloadClient):
             args["download-dir"] = download_dir
         return self._add(args, label, magnet_hash(uri), uri[:60])
 
-    _FIELDS = ["id", "hashString", "name", "percentDone", "downloadDir",
+    _FIELDS: ClassVar = ["id", "hashString", "name", "percentDone", "downloadDir",
                "status", "labels", "isFinished", "queuePosition", "sizeWhenDone",
                "leftUntilDone", "rateDownload", "rateUpload", "eta", "peersSendingToUs",
                "peersGettingFromUs", "uploadRatio", "addedDate", "error"]
     # 0 stopped · 1 check wait · 2 checking · 3 download wait · 4 downloading · 5 seed wait · 6 seeding
-    _STATUS = {0: "paused", 1: "checking", 2: "checking", 3: "queued", 4: "downloading",
+    _STATUS: ClassVar = {0: "paused", 1: "checking", 2: "checking", 3: "queued", 4: "downloading",
                5: "seeding", 6: "seeding"}
 
     def get_torrents(self, label: str = "") -> list:

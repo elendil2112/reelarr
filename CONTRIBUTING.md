@@ -7,10 +7,11 @@ recordings**.
 ## Running it
 
 ```sh
-pip install -r requirements.txt pytest httpx ruff
+pip install -r requirements-dev.txt
 python -m app                 # http://127.0.0.1:8189
 python -m pytest tests -q     # needs ffmpeg on PATH
-ruff check .
+ruff check .                  # lint
+mypy                          # type check
 ```
 
 ## Ground rules

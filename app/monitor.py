@@ -100,13 +100,13 @@ def save_artist(name: str, lookback_days=None, **prefs) -> dict:
     if existing:
         if vals:
             sets = ", ".join(f"{k}=?" for k in vals)
-            _c().execute(f"UPDATE monitored_artists SET {sets}, name=? WHERE id=?",
+            _c().execute(f"UPDATE monitored_artists SET {sets}, name=? WHERE id=?",  # noqa: S608 — allowlisted keys
                          [*vals.values(), name, existing["id"]])
         aid = existing["id"]
     else:
         since = _since(lookback_days)
         cols = {"name": name, "norm": norm, "added_at": time.time(), "last_checked": since, **vals}
-        cur = _c().execute(f"INSERT INTO monitored_artists ({', '.join(cols)}) "
+        cur = _c().execute(f"INSERT INTO monitored_artists ({', '.join(cols)}) "  # noqa: S608 — allowlisted keys
                            f"VALUES ({', '.join('?' for _ in cols)})", list(cols.values()))
         aid = cur.lastrowid
         db.log("info", "artists", f"now monitoring {name} ({_since_text(since)})")
@@ -286,7 +286,7 @@ def gates() -> list:
     cfg = config.load()
     t = cfg.get("torrents", {}) or {}
     artists = [a for a in list_artists() if a["monitored"]]
-    out = []
+    out: list = []
     if not artists:
         return out
     if not t.get("watch_dir"):

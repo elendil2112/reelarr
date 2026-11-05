@@ -4,6 +4,7 @@ Username + password against /api/v2/auth/login, then torrents are uploaded as
 multipart form data. qBittorrent calls labels "categories"; a category can be
 created on the fly, and setting one at add-time means no second call.
 """
+from typing import ClassVar
 import json
 import urllib.parse
 from pathlib import Path
@@ -58,7 +59,7 @@ class QBittorrentClient(DownloadClient):
         if not label:
             return ""
         if label not in self.labels():
-            status, raw, _ = self._form("/api/v2/torrents/createCategory",
+            status, _raw, _ = self._form("/api/v2/torrents/createCategory",
                                         {"category": label})
             if status >= 400:
                 # Not fatal — adding with an unknown category still works in
@@ -126,7 +127,7 @@ class QBittorrentClient(DownloadClient):
         except Exception:
             return []
 
-    _DONE_STATES = {"uploading", "stalledup", "pauseduP".lower(), "pausedup",
+    _DONE_STATES: ClassVar = {"uploading", "stalledup", "pauseduP".lower(), "pausedup",
                     "queuedup", "forcedup", "checkingup", "stoppedup"}
 
     @staticmethod

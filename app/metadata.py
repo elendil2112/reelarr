@@ -15,7 +15,6 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from mutagen import File as MutagenFile
 
@@ -72,7 +71,7 @@ def dedupe_track_list(tracks: list) -> list:
         return tracks
     from collections import Counter
     counts = Counter(t["title"].strip().lower() for t in tracks)
-    top_title, top_n = counts.most_common(1)[0]
+    _top_title, top_n = counts.most_common(1)[0]
     if len(counts) == 1:
         return []
     if len(tracks) >= 6 and top_n / len(tracks) >= 0.8:
@@ -343,6 +342,10 @@ class ShowMeta:
     bracket_override: str = ""
     extras: list = field(default_factory=list)   # file names you marked "not a song" in Review
     title_overrides: dict = field(default_factory=dict)   # file name → title you typed in Review
+    # set while reading, never stored
+    release_title: str = ""       # an album tag that names a release, not a show
+    source_explicit: bool = False  # an info file's Source:/Lineage: line named the source
+    source_inferred: bool = False  # the source was worked out from the notes instead
 
     FIELDS = ("artist", "host_artist", "date", "venue", "city", "state",
               "source_type", "official", "shnid", "recorder", "genre")
@@ -449,7 +452,7 @@ def sanitize_location(meta: "ShowMeta") -> None:
     if meta.venue and "," in meta.venue:
         segs = [re.sub(_lead_date, "", x).strip()
                 for x in meta.venue.split(",")]
-        dedup = []
+        dedup: list = []
         for x in (s for s in segs if s):
             if not dedup or n(x) != n(dedup[-1]):
                 dedup.append(x)
@@ -779,7 +782,7 @@ def read_embedded_tags(show_dir: Path) -> tuple:
     """
     meta = ShowMeta()
     curated = False
-    titles = []
+    titles: list = []
     audio = sorted(p for p in show_dir.rglob("*")
                    if p.suffix.lower() in TAGGABLE_EXTS and p.is_file())
     if not audio:
@@ -1072,7 +1075,7 @@ def parse_best_info(show_dir: Path, known_venues: frozenset = frozenset()):
     return best, best_path
 
 
-def find_info_file(show_dir: Path) -> Optional[Path]:
+def find_info_file(show_dir: Path) -> Path | None:
     for name in ("info.txt", "README.txt", "readme.txt"):
         p = show_dir / name
         if p.exists():
@@ -1485,7 +1488,7 @@ def parse_filenames(show_dir: Path, aliases: dict) -> ShowMeta:
 
     # per-track titles from the varying part of each name
     common = os.path.commonprefix(stems) if len(stems) > 1 else ""
-    titles = []
+    titles: list[dict] = []
     for i, s in enumerate(stems, 1):
         rem = s[len(common):] if common and len(common) < len(s) else s
         rem = re.sub(r"^[\s\-_.]*(?:d\d{1,2})?[\s\-_.]*t?\d{1,3}[\s\-_.)]*",

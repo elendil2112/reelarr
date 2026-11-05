@@ -1,0 +1,7 @@
+# Tools for working on Reelarr (CI installs these). Pinned so a new release
+# of a linter can't turn CI red on its own; Dependabot proposes upgrades.
+-r requirements.txt
+pytest==9.1.1
+httpx>=0.27
+ruff==0.16.9
+mypy==2.3.1

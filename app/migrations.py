@@ -457,7 +457,7 @@ def carry_over_barbosa(cfg_dir: Path) -> list:
     """First start of Reelarr beside (or instead of) Barbosa: copy its state
     under the new names. The Barbosa files themselves are left untouched, so
     Barbosa can keep running from them until you're happy with Reelarr."""
-    notes = []
+    notes: list = []
     main = cfg_dir / "reelarr.db"
     if main.exists():
         return notes
@@ -505,7 +505,7 @@ def run_all() -> list:
 def status() -> dict:
     """Current schema versions, for the System page."""
     cfg_dir = paths.config_dir()
-    out = {}
+    out: dict = {}
     for name in ("reelarr.db", "library_index.db"):
         p = cfg_dir / name
         if p.exists():

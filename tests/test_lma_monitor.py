@@ -6,8 +6,8 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_safety import fresh_app  # noqa: E402
-from test_auth import client, setup_admin  # noqa: E402
+from test_safety import fresh_app
+from test_auth import client, setup_admin
 
 GOOSE = [  # trimmed from archive.org's real answer
     {"identifier": "goose2026-04-23.InsideOut_DPA.2012_V3.digital.remix", "creator": "Goose",
@@ -54,7 +54,7 @@ def _setup(tmp_path, **cfg):
 
 
 def test_real_shaped_results_become_wanted(tmp_path, monkeypatch):
-    mon, lma, db = _setup(tmp_path)
+    mon, lma, _db = _setup(tmp_path)
     _fake_archive(monkeypatch, lma, GOOSE)
     a = mon.save_artist("Goose", lookback_days=60)
     r = mon.check_artist(a)
@@ -142,7 +142,7 @@ def test_auto_grab_writes_the_torrent(tmp_path, monkeypatch):
 
 
 def test_gates_explain_a_quiet_setup(tmp_path, monkeypatch):
-    mon, lma, _ = _setup(tmp_path, safety={"dry_run": True})
+    mon, _lma, _ = _setup(tmp_path, safety={"dry_run": True})
     mon.save_artist("Goose", action="grab")
     g = " ".join(mon.gates())
     assert "No .torrent folder" in g and "Dry run is on" in g

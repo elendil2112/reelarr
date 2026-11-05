@@ -308,9 +308,10 @@ deletes, and can undo — but keep a backup of anything you can't replace.
 ## Development
 
 ```sh
-pip install -r requirements.txt pytest httpx ruff
+pip install -r requirements-dev.txt
 python -m pytest tests -q     # needs ffmpeg
-ruff check .
+ruff check .                  # lint
+mypy                          # type check
 ```
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security problems: please report them

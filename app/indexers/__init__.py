@@ -9,10 +9,17 @@ provider add-on calling register().
 from .base import Indexer, Release, IndexerError
 from .lma import LiveMusicArchive
 
-__all__ = ["Indexer", "Release", "IndexerError", "LiveMusicArchive",
-           "register", "get", "all"]
+__all__ = [
+    "Indexer",
+    "IndexerError",
+    "LiveMusicArchive",
+    "Release",
+    "all",
+    "get",
+    "register",
+]
 
-_registry = {}
+_registry: dict = {}
 
 
 def register(indexer: Indexer):

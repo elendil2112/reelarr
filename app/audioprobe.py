@@ -34,7 +34,7 @@ def _mean_volume(path: Path, start: float, dur: float):
              "-ss", f"{max(start, 0):.2f}", "-t", f"{dur:.2f}",
              "-i", str(path), "-map", "0:a:0",
              "-af", "volumedetect", "-f", "null", "-"],
-            capture_output=True, text=True, timeout=60)
+            check=False, capture_output=True, text=True, timeout=60)
         m = re.search(r"mean_volume:\s*(-?[\d.]+)\s*dB", r.stderr)
         return float(m.group(1)) if m else None
     except Exception:
@@ -46,7 +46,7 @@ def _duration(path: Path):
         r = subprocess.run(
             ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
              "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True, timeout=30)
+            check=False, capture_output=True, text=True, timeout=30)
         return float(r.stdout.strip())
     except Exception:
         return None

@@ -44,9 +44,9 @@ def _decode(s: str) -> str:
     return s.encode().decode("unicode_escape") if "\\" in s else s
 
 
-def container_mounts(mountinfo: str = None) -> list:
+def container_mounts(mountinfo: str | None = None) -> list:
     """User folders mounted into this container (bind mounts / volumes)."""
-    out = []
+    out: list = []
     try:
         lines = (mountinfo if mountinfo is not None
                  else Path("/proc/self/mountinfo").read_text()).splitlines()
@@ -334,7 +334,7 @@ def _suggest(client_path: str, search_roots: list):
     return None
 
 
-def probe_client(cfg_override: dict = None, limit: int = 12) -> dict:
+def probe_client(cfg_override: dict | None = None, limit: int = 12) -> dict:
     """Ask the download client for a few torrents and check we can open them."""
     from . import clients, torrents
     cfg = dict(config.load()["torrents"])
@@ -370,7 +370,7 @@ def probe_client(cfg_override: dict = None, limit: int = 12) -> dict:
         out["message"] = "Reelarr can see every download the client reported."
         return out
     # propose a mapping from the first one we can't see
-    search = roots() if paths.in_container() else ["/"] + roots()
+    search = roots() if paths.in_container() else ["/", *roots()]
     for s in samples:
         if s["visible"]:
             continue

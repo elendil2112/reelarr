@@ -17,7 +17,7 @@ _UA = "Reelarr/1.0 (personal live-music archiver)"
 _warned: set = set()
 
 
-def _get_json(url: str, service: str, headers: dict = None, timeout: int = 12):
+def _get_json(url: str, service: str, headers: dict | None = None, timeout: int = 12):
     """GET a JSON document. Returns the parsed body, or None after logging why."""
     req = urllib.request.Request(url, headers={"User-Agent": _UA, **(headers or {})})
     try:

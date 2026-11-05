@@ -213,7 +213,7 @@ def api_auth_setup(request: Request, body: dict = Body(...)):
         db.kv_set("auth_setup_done", "1")
         db.log("warn", "auth", "setup: authentication switched OFF by choice")
         return {"ok": True, "mode": "none"}
-    err = auth.validate_credentials(body.get("username"), body.get("password"))
+    err = auth.validate_credentials(body.get("username") or "", body.get("password") or "")
     if err:
         return JSONResponse({"error": err}, status_code=400)
     uid = auth.create_user(body["username"], body["password"])
@@ -295,7 +295,7 @@ def api_security_mode(request: Request, body: dict = Body(...)):
     if want == "forms":
         u = auth.first_user()
         if not u:
-            err = auth.validate_credentials(body.get("username"), body.get("password"))
+            err = auth.validate_credentials(body.get("username") or "", body.get("password") or "")
             if err:
                 return JSONResponse({"error": err}, status_code=400)
             uid = auth.create_user(body["username"], body["password"])
@@ -343,7 +343,7 @@ def api_status():
 
 
 @app.get("/api/shows")
-def api_shows(status: str = None, limit: int = 50, offset: int = 0):
+def api_shows(status: str | None = None, limit: int = 50, offset: int = 0):
     limit = max(1, min(limit, 200))
     rows = db.list_shows(status=status, limit=limit, offset=max(0, offset))
     for r in rows:
@@ -461,8 +461,8 @@ def api_queue():
            "dry_run": fileops.dry_run_enabled(),
            "torrent_folder": bool((cfg.get("torrents", {}) or {}).get("watch_dir")),
            "downloading": [], "client": None,
-           "intake": [dict(id=r["id"], folder_name=r["folder_name"], status=r["status"],
-                           updated_at=r["updated_at"], notes=r["notes"])
+           "intake": [{"id": r["id"], "folder_name": r["folder_name"], "status": r["status"],
+                           "updated_at": r["updated_at"], "notes": r["notes"]}
                       for st in ("processing", "pending", "planned")
                       for r in db.list_shows(status=st, limit=100)]}
     t = cfg.get("torrents", {})
@@ -499,11 +499,11 @@ def _attach_client(grabbed: list, seen: list):
     """Give each grabbed release its torrent's status, progress and ETA, so
     Recently grabbed shows how far along it is. An archive.org torrent is
     named after the item, so the release id is the match."""
-    by_name = {}
+    by_name: dict = {}
     for d in seen:
-        by_name.setdefault(_torrent_key(d.get("name")), d)
+        by_name.setdefault(_torrent_key(d.get("name") or ""), d)
     for g in grabbed:
-        keys = [_torrent_key(g.get("release_id")), _torrent_key((g.get("data") or {}).get("title"))]
+        keys = [_torrent_key(g.get("release_id") or ""), _torrent_key((g.get("data") or {}).get("title") or "")]
         d = next((by_name[k] for k in keys if k and k in by_name), None)
         if d is None:
             rid = keys[0]
@@ -939,7 +939,7 @@ def api_lma_grab(body: dict = Body(default={})):
 
 
 @app.get("/api/corrections")
-def api_corrections(kind: str = None):
+def api_corrections(kind: str | None = None):
     return {"corrections": library_index.corrections_list(kind)}
 
 

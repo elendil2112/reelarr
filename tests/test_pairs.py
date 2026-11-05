@@ -8,7 +8,7 @@ import pytest
 from mutagen.flac import FLAC
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_safety import fresh_app, make_audio, offline, tree  # noqa: E402
+from test_safety import fresh_app, make_audio, offline, tree
 
 pytestmark = pytest.mark.skipif(__import__("shutil").which("ffmpeg") is None, reason="needs ffmpeg")
 
@@ -124,7 +124,7 @@ def test_review_then_approve_keeps_the_discs(tmp_path):
     m = _app(tmp_path, safety={"dry_run": False}, filing={"auto_file_threshold": 101})
     _bwb(tmp_path / "watch")
     importlib.import_module("app.watcher").scan(force=True)
-    row = [x for x in m["database"].list_shows(limit=10) if x["status"] == "review"][0]
+    row = next(x for x in m["database"].list_shows(limit=10) if x["status"] == "review")
     assert json.loads(row["meta"])["bracket_override"] == "SBD 082964 TinyDancer & AUD Miller"
     r = m["pipeline"].approve_show(row["id"], {"venue": "Old Waldorf"})
     assert r.get("status") == "filed" or r.get("dest"), r
@@ -159,13 +159,13 @@ def test_undo_separates_them_and_they_stay_apart(tmp_path):
     early, late = _bwb(tmp_path / "watch")
     w = importlib.import_module("app.watcher")
     w.scan(force=True)                                        # combined, into Review
-    pair_batch = [b for b in m["fileops"].list_batches() if b["kind"] == "pair"][0]
+    pair_batch = next(b for b in m["fileops"].list_batches() if b["kind"] == "pair")
     m["fileops"].undo(pair_batch["id"])
     assert early.is_dir() and late.is_dir()
     rows = {r["current_path"]: r for r in m["database"].list_shows(limit=10)}
     assert rows[str(early)]["status"] == "review" and rows[str(late)]["status"] == "review"
     assert "Separated by Undo" in rows[str(early)]["notes"]
-    combined = [r for r in m["database"].list_shows(limit=10) if "early + late" in r["folder_name"]][0]
+    combined = next(r for r in m["database"].list_shows(limit=10) if "early + late" in r["folder_name"])
     assert combined["status"] == "rejected"
     w.scan(force=True)                                        # not paired again behind your back
     assert early.is_dir() and late.is_dir()
@@ -206,7 +206,7 @@ def test_editing_the_source_in_review_replaces_the_joined_bracket(tmp_path):
     m = _app(tmp_path, safety={"dry_run": False}, filing={"auto_file_threshold": 101})
     _bwb(tmp_path / "watch")
     importlib.import_module("app.watcher").scan(force=True)
-    row = [x for x in m["database"].list_shows(limit=10) if x["status"] == "review"][0]
+    row = next(x for x in m["database"].list_shows(limit=10) if x["status"] == "review")
     m["pipeline"].approve_show(row["id"], {"source_type": "MTX", "recorder": "Joe", "shnid": "", "official": ""})
     f = next(p for p in (tmp_path / "music").rglob("*.flac") if p.is_file())
     assert FLAC(f)["ALBUM"][0].endswith("[MTX Joe]")

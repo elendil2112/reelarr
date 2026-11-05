@@ -5,8 +5,8 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_safety import fresh_app  # noqa: E402
-from test_auth import client, setup_admin  # noqa: E402
+from test_safety import fresh_app
+from test_auth import client, setup_admin
 
 
 def _fake_indexer():

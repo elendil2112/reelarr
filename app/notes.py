@@ -53,7 +53,10 @@ def create(title: str = "", body: str = "") -> dict:
     cur = c.execute("INSERT INTO notes (title, body, created_at, updated_at) VALUES (?,?,?,?)",
                     ((title or "")[:MAX_TITLE], (body or "")[:MAX_BODY], now, now))
     c.commit()
-    return get(cur.lastrowid)
+    n = get(cur.lastrowid or 0)
+    if n is None:
+        raise RuntimeError("note wasn't saved")
+    return n
 
 
 def save(nid: int, rev: int, title=None, body=None, pinned=None) -> dict:
@@ -78,14 +81,18 @@ def save(nid: int, rev: int, title=None, body=None, pinned=None) -> dict:
         return n
     sets += ["rev=rev+1", "updated_at=?"]
     args += [time.time(), nid, int(rev)]
-    cur = c.execute(f"UPDATE notes SET {', '.join(sets)} WHERE id=? AND rev=? AND deleted_at IS NULL", args)
+    cur = c.execute(f"UPDATE notes SET {', '.join(sets)} WHERE id=? AND rev=? AND deleted_at IS NULL",  # noqa: S608 — fixed fields
+                    args)
     c.commit()
     if cur.rowcount == 0:
         now = get(nid)
         if now is None:
             raise KeyError(nid)
         raise Conflict(now)
-    return get(nid)
+    n = get(nid)
+    if n is None:
+        raise KeyError(nid)
+    return n
 
 
 def delete(nid: int) -> bool:
