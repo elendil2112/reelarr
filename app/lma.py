@@ -119,8 +119,8 @@ def mark_owned(rows: list) -> list:
                 if artist and artist[:12] in blob:
                     r["owned"] = True
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            db.log("warn", "discover", f"couldn't check which results you own: {e}")
     return rows
 
 

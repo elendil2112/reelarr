@@ -4,9 +4,9 @@ Registering another one is a two-line change: write the subclass in its own
 file, import it here, add it to CLIENTS. Everything else — settings, the
 Articles page, the torrent watcher — picks it up automatically.
 """
-from .base import (AddResult, DownloadClient, DownloadClientError,  # noqa: F401
-                   TorrentInfo,
-                   magnet_hash, torrent_infohash, torrent_name)
+from .base import (AddResult as AddResult, DownloadClient, DownloadClientError,
+                   TorrentInfo as TorrentInfo, magnet_hash as magnet_hash,
+                   torrent_infohash as torrent_infohash, torrent_name as torrent_name)
 from .deluge import DelugeClient
 from .qbittorrent import QBittorrentClient
 from .transmission import TransmissionClient

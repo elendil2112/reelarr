@@ -134,7 +134,7 @@ def _median(xs):
 def _fmt(sec) -> str:
     if sec is None:
         return "?"
-    sec = int(round(sec))
+    sec = round(sec)
     return f"{sec // 60}:{sec % 60:02d}"
 
 
@@ -334,7 +334,7 @@ def _fewer_files(info: list, tracks: list):
 def _by_number(info: list, tracks: list, note: str) -> dict:
     """Last resort when the counts can't be reconciled: a real track number in
     the file name (t05, '05 -', …) — never digits from a date or a disc."""
-    by_num = {}
+    by_num: dict = {}
     for t in tracks:
         by_num.setdefault(t.get("num"), t)
     entries = []

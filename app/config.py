@@ -6,13 +6,14 @@ import json
 import os
 import copy
 import threading
+from typing import Any
 
 from . import paths
 from .migrations import write_settings, LATEST
 CONFIG_DIR = paths.config_dir()
 SETTINGS_PATH = CONFIG_DIR / "settings.json"
 
-DEFAULTS = {
+DEFAULTS: dict[str, Any] = {
     # ── Paths (inside the container; host paths are set in docker-compose) ──
     "paths": {
         "watch_dir": paths.default_watch_dir(),
@@ -69,7 +70,7 @@ DEFAULTS = {
         "auto_file_threshold": 85,   # score 0-100 required to file without review
         "duplicate_policy": "upgrade",  # upgrade | review | file_anyway
         "hold_uncertain_titles": True,  # send shows with unvalidated setlists to Review
-        "new_artist_policy": "auto",    # auto (create folder) | review
+        "new_artist_policy": "review",  # review (first show by a new artist waits for you) | auto
         "default_source_type": "AUD",   # bracket used when no source is detected
         "folder_prefix_style": "slug",  # slug -> gratefuldead2024-06-01 ...; name -> Grateful Dead 2024-06-01 ...
         "official_labels": "",          # comma-separated names of official-release sources
@@ -198,8 +199,8 @@ def _deep_merge(base: dict, override: dict, _path: tuple = ()) -> dict:
     out = copy.deepcopy(base)
     for k, v in (override or {}).items():
         if isinstance(v, dict) and isinstance(out.get(k), dict) \
-                and (_path + (k,)) not in _REPLACE_WHOLE:
-            out[k] = _deep_merge(out[k], v, _path + (k,))
+                and ((*_path, k)) not in _REPLACE_WHOLE:
+            out[k] = _deep_merge(out[k], v, (*_path, k))
         else:
             out[k] = v
     return out

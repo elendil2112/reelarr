@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_safety import fresh_app  # noqa: E402
+from test_safety import fresh_app
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
 
 def client(tmp_path, settings=None, providers=""):

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_safety import fresh_app  # noqa: E402
+from test_safety import fresh_app
 
 
 @pytest.fixture
@@ -178,7 +178,7 @@ def test_venue_without_a_keyword_above_city(places, tmp_path, text, venue):
     f = tmp_path / "info.txt"
     f.write_text(text)
     m = md.parse_info_file(f)
-    assert m.venue == venue and m.city == "Burlington" or m.city == "Amsterdam"
+    assert (m.venue == venue and m.city == "Burlington") or m.city == "Amsterdam"
 
 
 @pytest.mark.parametrize("name,venue", [

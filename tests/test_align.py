@@ -10,14 +10,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import align  # noqa: E402
+from app import align
 
 
 def info(*files):
     """files: (name, seconds[, own label]) — what describe() would read."""
     out = []
     for f in files:
-        name, secs, label = (f + ("",))[:3]
+        name, secs, label = ((*f, ""))[:3]
         p = Path("/show") / name
         out.append({"path": p, "name": name, "seconds": secs,
                     "label": label or align.own_label(p), "disc": align.disc_of(p)})
@@ -181,7 +181,7 @@ def test_filed_show_with_a_tuning_track(tmp_path):
 @needs_ffmpeg
 def test_ambiguous_show_is_held_and_fixed_in_review(tmp_path):
     from test_auth import client, setup_admin
-    m, show = _show(tmp_path, [20, 200, 190, 210, 25], SETLIST_TXT, hold=True)
+    _m, show = _show(tmp_path, [20, 200, 190, 210, 25], SETLIST_TXT, hold=True)
     c = client(tmp_path)          # same app, a fresh import — reuse the folders it set up
     setup_admin(c)
     importlib.import_module("app.config").set_key(["filing", "hold_uncertain_titles"], True)
@@ -197,7 +197,7 @@ def test_ambiguous_show_is_held_and_fixed_in_review(tmp_path):
     t = c.post(f"/api/show/{row['id']}/tracks", json={}).json()
     assert not t["ok"] and len(t["entries"]) == 5
     t = c.post(f"/api/show/{row['id']}/tracks", json={"extras": ["", "gd77-05-08d1t01.flac"]}).json()
-    assert t["ok"] and [e["title"] for e in t["entries"]][0] == "Tuning"
+    assert t["ok"] and next(e["title"] for e in t["entries"]) == "Tuning"
     bad = c.post(f"/api/show/{row['id']}/approve",
                  json={"extras": ["", "gd77-05-08d1t01.flac", "gd77-05-08d1t05.flac"]})
     assert bad.status_code == 400 and "3 files left as songs" in bad.json()["error"]
@@ -322,7 +322,7 @@ def test_titles_without_any_setlist():
 @needs_ffmpeg
 def test_typed_titles_go_through_review_to_the_tags(tmp_path):
     from test_auth import client, setup_admin
-    m, show = _show(tmp_path, [20, 200, 190, 210, 25], SETLIST_TXT, hold=True)
+    _m, show = _show(tmp_path, [20, 200, 190, 210, 25], SETLIST_TXT, hold=True)
     c = client(tmp_path)
     setup_admin(c)
     cfg = importlib.import_module("app.config")

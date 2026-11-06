@@ -255,10 +255,20 @@ def _settings_v3_conversion(s: dict, legacy: bool):
         s.setdefault("watcher", {})["convert_target"] = "cd"
 
 
+def _settings_v4_new_artists(s: dict, legacy: bool):
+    # 0.2.0: a new install sends the first show by an artist it hasn't seen
+    # to Review, so a misread artist can't quietly start a new folder. An
+    # existing install keeps filing new artists itself, as it always has.
+    # (A settings file with no version is a new install, unless from Barbosa.)
+    if legacy or int(s.get("_schema", 0)) >= 1:
+        s.setdefault("filing", {}).setdefault("new_artist_policy", "auto")
+
+
 SETTINGS_STEPS = [
     (1, "retired step", _settings_v1_retired),
     (2, "dry-run default", _settings_v2_safety),
     (3, "conversion target", _settings_v3_conversion),
+    (4, "new-artist default", _settings_v4_new_artists),
 ]
 
 LATEST = {"reelarr.db": MAIN_STEPS[-1][0],
@@ -443,11 +453,16 @@ def _copy_sqlite(src: Path, dest: Path):
         s.close()
 
 
+# ── Legacy: Barbosa ──────────────────────────────────────────────────────────
+# Reelarr grew out of Barbosa, a private tool that was never published. The
+# code below only runs for someone moving an existing Barbosa install over;
+# on any other install it finds nothing and does nothing.
+
 def carry_over_barbosa(cfg_dir: Path) -> list:
     """First start of Reelarr beside (or instead of) Barbosa: copy its state
     under the new names. The Barbosa files themselves are left untouched, so
     Barbosa can keep running from them until you're happy with Reelarr."""
-    notes = []
+    notes: list = []
     main = cfg_dir / "reelarr.db"
     if main.exists():
         return notes
@@ -495,7 +510,7 @@ def run_all() -> list:
 def status() -> dict:
     """Current schema versions, for the System page."""
     cfg_dir = paths.config_dir()
-    out = {}
+    out: dict = {}
     for name in ("reelarr.db", "library_index.db"):
         p = cfg_dir / name
         if p.exists():

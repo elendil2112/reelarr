@@ -23,3 +23,6 @@ config/trash/
 config/*.tmp
 .pytest_cache/
 .ruff_cache/
+
+# bare-metal Python environment (run.sh / run.bat)
+.venv/

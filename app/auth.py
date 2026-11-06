@@ -87,7 +87,7 @@ def create_user(username: str, password: str) -> int:
         (username.strip(), hash_password(password), time.time()))
     db._conn().commit()
     db.kv_set("auth_setup_done", "1")
-    return cur.lastrowid
+    return cur.lastrowid or 0
 
 
 def get_user(username: str):
@@ -179,7 +179,7 @@ def api_key_ok(candidate: str) -> bool:
 # 5 minutes. In memory: a restart clears it, which is fine for a home app.
 
 _fail_lock = threading.Lock()
-_failures = {}          # ip -> [timestamps]
+_failures: dict = {}          # ip -> [timestamps]
 MAX_FAILS, WINDOW, LOCKOUT = 5, 900, 300
 
 

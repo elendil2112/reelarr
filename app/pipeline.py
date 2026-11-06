@@ -18,7 +18,9 @@ import re
 import shutil
 import subprocess
 import zipfile
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from mutagen.flac import FLAC
 from mutagen.id3 import (ID3, ID3NoHeaderError, TIT2, TPE1, TPE2, TALB, TPOS,
@@ -144,7 +146,7 @@ def derive_host_artist(artist: str, library_dir: Path, cfg: dict):
     if learned:
         return learned, True
     # the full name IS a known act ("Dead & Company") — never split it
-    canon, hit = canonical_artist(artist, library_dir, cfg)
+    _canon, hit = canonical_artist(artist, library_dir, cfg)
     if hit:
         return "", True
 
@@ -219,7 +221,7 @@ def merge(sources_by_name: dict) -> tuple:
             merged.tracks = meta.tracks
             provenance["tracks"] = src
             break
-    for src, meta in sources_by_name.items():
+    for meta in sources_by_name.values():
         if meta.notes and not merged.notes:
             merged.notes = meta.notes
     return merged, provenance, agreement
@@ -365,14 +367,15 @@ def dedupe_formats(show_dir: Path, log, b: "fileops.Batch") -> int:
     FLAC/ and MP3/ folders are still de-duplicated, while identically numbered
     tracks in different disc folders are left alone — they're different songs.
     """
-    groups = {}
+    groups: dict = {}
     for p in show_dir.rglob("*"):
         if p.is_file() and p.suffix.lower() in _FMT_RANK:
             stem = re.sub(r"[^a-z0-9]", "", p.stem.lower())
             if stem:
                 groups.setdefault((_disc_context(p, show_dir), stem), []).append(p)
 
-    removed, culled = 0, []
+    removed = 0
+    culled: list = []
     for files in groups.values():
         if len(files) < 2:
             continue
@@ -422,7 +425,7 @@ def _probe_audio(path: Path) -> dict:
             ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
              "stream=sample_fmt,bits_per_raw_sample,bits_per_sample,sample_rate,duration",
              "-show_entries", "format=duration", "-of", "json", str(path)],
-            capture_output=True, timeout=60, text=True)
+            check=False, capture_output=True, timeout=60, text=True)
         data = json.loads(r.stdout or "{}")
         st = (data.get("streams") or [{}])[0]
         bits = int(st.get("bits_per_raw_sample") or 0) or int(st.get("bits_per_sample") or 0)
@@ -493,7 +496,7 @@ def _tar_refusal(tf: "tarfile.TarFile", left) -> tuple:
 def _sevenzip_refusal(exe: str, arc: Path, left) -> tuple:
     """Look inside before extracting. Anything we can't list, we don't open."""
     try:
-        r = subprocess.run([exe, "l", "-slt", "-ba", str(arc)], capture_output=True,
+        r = subprocess.run([exe, "l", "-slt", "-ba", str(arc)], check=False, capture_output=True,
                            text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as e:
         return f"couldn't look inside it ({e})", 0
@@ -555,7 +558,7 @@ def prep_folder(show_dir: Path, cfg: dict, log, b: "fileops.Batch"):
                     if why:
                         log("warn", "extract", f"not unzipping {z.name}: {why}")
                         continue
-                    zf.extractall(z.parent)        # zipfile drops absolute and ../ paths
+                    zf.extractall(z.parent)  # noqa: S202 — zipfile drops absolute and ../ paths; size checked above
                 spent += size
                 _done_with_archive(z, "unzipped")
             except Exception as e:
@@ -572,7 +575,7 @@ def prep_folder(show_dir: Path, cfg: dict, log, b: "fileops.Batch"):
                     if why:
                         log("warn", "extract", f"not untarring {t.name}: {why}")
                         continue
-                    tf.extractall(t.parent, filter="data")   # blocks path traversal and links out
+                    tf.extractall(t.parent, filter="data")
                 spent += size
                 _done_with_archive(t, "untarred")
             except Exception as e:
@@ -588,7 +591,7 @@ def prep_folder(show_dir: Path, cfg: dict, log, b: "fileops.Batch"):
                     log("warn", "extract", f"not extracting {arc.name}: {why}")
                     continue
                 r = subprocess.run([sevenzip, "x", "-y", "-p-", f"-o{arc.parent}",
-                                    str(arc)], capture_output=True, timeout=1800)
+                                    str(arc)], check=False, capture_output=True, timeout=1800)
                 spent += size                       # counted even if it stopped partway
                 if r.returncode == 0:
                     _done_with_archive(arc, "extracted")
@@ -634,7 +637,7 @@ def prep_folder(show_dir: Path, cfg: dict, log, b: "fileops.Batch"):
         probe = _probe_audio(src)
         cmd = flac_command(src, out, target, probe)
         try:
-            r = subprocess.run(cmd, capture_output=True, timeout=600)
+            r = subprocess.run(cmd, check=False, capture_output=True, timeout=600)
             if r.returncode != 0 or not out.exists():
                 log("warn", "convert", f"ffmpeg failed on {src.name}")
                 if out.exists():
@@ -671,118 +674,169 @@ def prep_folder(show_dir: Path, cfg: dict, log, b: "fileops.Batch"):
 
 # ── Identification ───────────────────────────────────────────────────────────
 
-def identify(show_dir: Path, cfg: dict, log) -> dict:
-    """Gather every metadata source and produce the merged result + score."""
-    aliases = cfg["artists"]["aliases"]
-    sidecar = read_sidecar(show_dir)
+@dataclass
+class _Ident:
+    """Everything identify() works out about one show folder, step by step."""
+    show_dir: Path
+    cfg: dict
+    log: Any
+    sidecar: dict = field(default_factory=dict)
+    tags_meta: ShowMeta = field(default_factory=ShowMeta)
+    curated: bool = False
+    info_meta: ShowMeta = field(default_factory=ShowMeta)
+    info_path: Path | None = None
+    folder_meta: ShowMeta = field(default_factory=ShowMeta)
+    files_meta: ShowMeta = field(default_factory=ShowMeta)
+    sidecar_meta: ShowMeta = field(default_factory=ShowMeta)
+    ia_meta: ShowMeta | None = None
+    slf_meta: ShowMeta | None = None
+    merged: ShowMeta = field(default_factory=ShowMeta)
+    provenance: dict = field(default_factory=dict)
+    agreement: dict = field(default_factory=dict)
+    hold: list = field(default_factory=list)   # reasons it must wait in Review, whatever the score
+    titles_uncertain: str = ""
+    alignment: dict | None = None
+    in_library: bool = False
 
+
+def identify(show_dir: Path, cfg: dict, log) -> dict:
+    """Gather every metadata source and produce the merged result + score.
+
+    Each step below reads and refines one shared _Ident; the order matters
+    (corrections before titles, titles before places, the library artist
+    before the source type), so change it with care."""
+    x = _Ident(show_dir, cfg, log)
+    _read_local(x)
+    _look_up_online(x)
+    _merge_sources(x)
+    _settle_artist_vs_folder(x)
+    _apply_corrections(x)
+    _tidy_text(x)
+    _settle_titles(x)
+    _settle_location(x)
+    _settle_library_artist(x)
+    _settle_source_type(x)
+    _last_look(x)
+    return _result(x)
+
+
+def _read_local(x: _Ident):
+    """Everything the folder itself says: sidecar, tags, info file, names."""
+    aliases = x.cfg["artists"]["aliases"]
+    x.sidecar = read_sidecar(x.show_dir)
     known_venues = frozenset(library_index.venue_norms())
-    tags_meta, curated, _titles = read_embedded_tags(show_dir)
-    info_meta, info_path = parse_best_info(show_dir, known_venues)
-    folder_meta = parse_folder_name(show_dir.name, aliases)
-    files_meta = parse_filenames(show_dir, aliases)
-    hold = []           # reasons this show must wait in Review, whatever the score
+    x.tags_meta, x.curated, _titles = read_embedded_tags(x.show_dir)
+    x.info_meta, x.info_path = parse_best_info(x.show_dir, known_venues)
+    x.folder_meta = parse_folder_name(x.show_dir.name, aliases)
+    x.files_meta = parse_filenames(x.show_dir, aliases)
 
     # "Track 01", file names and the like from the files' own tags don't get
     # to outrank a real setlist from the info file or setlist.fm
-    if tags_meta.tracks and (_looks_unreliable(tags_meta.tracks) or _mass_tagged(tags_meta.tracks)):
-        tags_meta.tracks = []
+    t = x.tags_meta
+    if t.tracks and (_looks_unreliable(t.tracks) or _mass_tagged(t.tracks)):
+        t.tracks = []
 
-    sidecar_meta = ShowMeta()
-    if sidecar.get("official"):
-        sidecar_meta.official = sidecar["official"]
-    if sidecar.get("source_type"):
-        sidecar_meta.source_type = sidecar["source_type"]
-    if sidecar.get("shnid"):
-        sidecar_meta.shnid = str(sidecar["shnid"])
+    if x.sidecar.get("official"):
+        x.sidecar_meta.official = x.sidecar["official"]
+    if x.sidecar.get("source_type"):
+        x.sidecar_meta.source_type = x.sidecar["source_type"]
+    if x.sidecar.get("shnid"):
+        x.sidecar_meta.shnid = str(x.sidecar["shnid"])
 
+
+def _look_up_online(x: _Ident):
+    """archive.org by identifier; setlist.fm by artist + date, or by city +
+    date when no artist is known."""
+    from .metadata import plausible_artist
+    aliases = x.cfg["artists"]["aliases"]
+    tags, info, folder = x.tags_meta, x.info_meta, x.folder_meta
     # bootstrap artist/date for external lookups. The folder name's date is
     # tried first: info files carry transfer and typo dates far more often
     # than etree folder names carry wrong ones.
-    boot_artist = (tags_meta.artist or info_meta.artist or folder_meta.artist)
+    boot_artist = (tags.artist or info.artist or folder.artist)
     boot_dates = list(dict.fromkeys(d for d in (
-        tags_meta.date if curated else "", folder_meta.date, info_meta.date, tags_meta.date) if d))
+        tags.date if x.curated else "", folder.date, info.date, tags.date) if d))
     boot_date = boot_dates[0] if boot_dates else ""
-
-    ia_meta, slf_meta = None, None
-    src_cfg = cfg["sources"]
+    src_cfg = x.cfg["sources"]
 
     if src_cfg["use_internet_archive"]:
-        ident = show_dir.name if sources.is_ia_identifier(show_dir.name) else ""
+        ident = x.show_dir.name if sources.is_ia_identifier(x.show_dir.name) else ""
         if ident:
-            ia_meta = sources.fetch_ia(ident)
-            if ia_meta:
-                log("info", "lookup", f"archive.org matched {ident}")
+            x.ia_meta = sources.fetch_ia(ident)
+            if x.ia_meta:
+                x.log("info", "lookup", f"archive.org matched {ident}")
 
-    from .metadata import plausible_artist
     if not plausible_artist(boot_artist):
         boot_artist = ""
+    if not (src_cfg["use_setlistfm"] and src_cfg["setlistfm_api_key"]):
+        return
+    key = src_cfg["setlistfm_api_key"]
+    if boot_artist and boot_dates:
+        slf_artist = aliases.get(_norm(boot_artist), boot_artist)
+        for d in boot_dates[:2]:          # the folder's date, then the info file's
+            x.slf_meta = sources.fetch_setlistfm(slf_artist, d, key)
+            if x.slf_meta:
+                x.log("info", "lookup", f"setlist.fm matched {slf_artist} {d}")
+                break
+    if not x.slf_meta and boot_date and not boot_artist:
+        # No artist at all — reverse lookup by city+date, confirmed against
+        # the venue name and our known track titles. Never when the folder
+        # or info file names an artist: a different band playing that night
+        # isn't this recording.
+        boot_venue = (info.venue or tags.venue or folder.venue)
+        boot_city = (info.city or tags.city or folder.city)
+        known_titles = [t["title"] for t in (info.tracks or tags.tracks)]
+        if boot_venue or boot_city:
+            x.slf_meta = sources.fetch_setlistfm_reverse(
+                boot_date, boot_city, boot_venue, key, known_titles)
+            if x.slf_meta:
+                x.log("info", "lookup",
+                      f"setlist.fm reverse match: {x.slf_meta.artist} @ "
+                      f"{x.slf_meta.venue} {boot_date}")
 
-    if src_cfg["use_setlistfm"] and src_cfg["setlistfm_api_key"]:
-        if boot_artist and boot_dates:
-            slf_artist = aliases.get(_norm(boot_artist), boot_artist)
-            for d in boot_dates[:2]:          # the folder's date, then the info file's
-                slf_meta = sources.fetch_setlistfm(
-                    slf_artist, d, src_cfg["setlistfm_api_key"])
-                if slf_meta:
-                    log("info", "lookup", f"setlist.fm matched {slf_artist} {d}")
-                    break
-        if not slf_meta and boot_date and not boot_artist:
-            # No artist at all — reverse lookup by city+date, confirmed against
-            # the venue name and our known track titles. Never when the folder
-            # or info file names an artist: a different band playing that night
-            # isn't this recording.
-            boot_venue = (info_meta.venue or tags_meta.venue or folder_meta.venue)
-            boot_city = (info_meta.city or tags_meta.city or folder_meta.city)
-            known_titles = [t["title"] for t in
-                            (info_meta.tracks or tags_meta.tracks)]
-            if boot_venue or boot_city:
-                slf_meta = sources.fetch_setlistfm_reverse(
-                    boot_date, boot_city, boot_venue,
-                    src_cfg["setlistfm_api_key"], known_titles)
-                if slf_meta:
-                    log("info", "lookup",
-                        f"setlist.fm reverse match: {slf_meta.artist} @ "
-                        f"{slf_meta.venue} {boot_date}")
 
-    ordered = {"sidecar": sidecar_meta}
-    if curated:
-        ordered["curated_tags"] = tags_meta
-    ordered["info_file"] = info_meta
-    if slf_meta:
-        ordered["setlistfm"] = slf_meta
-    if ia_meta:
-        ordered["archive_org"] = ia_meta
-    if not curated:
-        ordered["tags"] = tags_meta
-    ordered["folder_name"] = folder_meta
-    ordered["filenames"] = files_meta
+def _merge_sources(x: _Ident):
+    """Merge in trust order, then settle the date, SHNID and genre."""
+    from .metadata import plausible_artist
+    ordered = {"sidecar": x.sidecar_meta}
+    if x.curated:
+        ordered["curated_tags"] = x.tags_meta
+    ordered["info_file"] = x.info_meta
+    if x.slf_meta:
+        ordered["setlistfm"] = x.slf_meta
+    if x.ia_meta:
+        ordered["archive_org"] = x.ia_meta
+    if not x.curated:
+        ordered["tags"] = x.tags_meta
+    ordered["folder_name"] = x.folder_meta
+    ordered["filenames"] = x.files_meta
 
-    merged, provenance, agreement = merge(ordered)
+    x.merged, x.provenance, x.agreement = merge(ordered)
+    merged, provenance, folder, slf = x.merged, x.provenance, x.folder_meta, x.slf_meta
 
     # ── the date (items 11–12): setlist.fm's confirmation wins; otherwise a
     # date in the folder name beats one from an info file or loose tags
-    if slf_meta and slf_meta.date and provenance.get("date") != "sidecar":
-        if merged.date and merged.date != slf_meta.date:
-            log("info", "date", f"{provenance.get('date')} said {merged.date}; setlist.fm confirms {slf_meta.date}")
-        merged.date = slf_meta.date
+    if slf and slf.date and provenance.get("date") != "sidecar":
+        if merged.date and merged.date != slf.date:
+            x.log("info", "date", f"{provenance.get('date')} said {merged.date}; setlist.fm confirms {slf.date}")
+        merged.date = slf.date
         provenance["date"] = "setlistfm"
-    elif folder_meta.date and merged.date and merged.date != folder_meta.date \
+    elif folder.date and merged.date and merged.date != folder.date \
             and provenance.get("date") not in ("sidecar", "curated_tags", "folder_name"):
-        log("info", "date", f"the {provenance.get('date', 'info file').replace('_', ' ')} says {merged.date}, "
-            f"the folder name says {folder_meta.date} — using the folder's")
-        merged.date = folder_meta.date
+        x.log("info", "date", f"the {provenance.get('date', 'info file').replace('_', ' ')} says {merged.date}, "
+              f"the folder name says {folder.date} — using the folder's")
+        merged.date = folder.date
         provenance["date"] = "folder_name"
 
     # ── SHNID (19): the folder name names this exact recording; an info file
     # often cites the one it was derived from
-    if folder_meta.shnid and merged.shnid and folder_meta.shnid.lstrip("0") != merged.shnid.lstrip("0") \
+    if folder.shnid and merged.shnid and folder.shnid.lstrip("0") != merged.shnid.lstrip("0") \
             and provenance.get("shnid") not in ("sidecar", "folder_name"):
-        log("info", "shnid", f"info file cites {merged.shnid}; the folder is {folder_meta.shnid} — using the folder's")
-        merged.shnid = folder_meta.shnid
+        x.log("info", "shnid", f"info file cites {merged.shnid}; the folder is {folder.shnid} — using the folder's")
+        merged.shnid = folder.shnid
         provenance["shnid"] = "folder_name"
 
-    if src_cfg["use_musicbrainz_genre"] and merged.artist and not merged.genre:
+    if x.cfg["sources"]["use_musicbrainz_genre"] and merged.artist and not merged.genre:
         merged.genre = sources.fetch_mb_genre(merged.artist)
 
     merged.artist = clean_artist(merged.artist) if merged.artist else ""
@@ -791,25 +845,32 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         provenance.pop("artist", None)
     merged.state = normalise_state(merged.state)
 
-    # ── the folder name's artist vs an info file's or loose tags' (item 7)
-    fa = folder_meta.artist if plausible_artist(folder_meta.artist) else ""
+
+def _settle_artist_vs_folder(x: _Ident):
+    """The folder name's artist vs an info file's or loose tags' (item 7)."""
+    from .metadata import plausible_artist
+    merged, provenance = x.merged, x.provenance
+    fa = x.folder_meta.artist if plausible_artist(x.folder_meta.artist) else ""
     if not merged.artist and fa:
         merged.artist, provenance["artist"] = fa, "folder_name"
     elif fa and merged.artist and provenance.get("artist") in ("info_file", "tags", "filenames") \
             and not sanity.names_related(fa, merged.artist):
-        lib = Path(cfg["paths"]["library_dir"])
-        fa_in = canonical_artist(fa, lib, cfg)[1]
-        ma_in = canonical_artist(merged.artist, lib, cfg)[1]
+        lib = Path(x.cfg["paths"]["library_dir"])
+        fa_in = canonical_artist(fa, lib, x.cfg)[1]
+        ma_in = canonical_artist(merged.artist, lib, x.cfg)[1]
         said = provenance["artist"].replace("_", " ")
         if fa_in and not ma_in:
-            log("info", "artist", f"the {said} says {merged.artist!r}; the folder name says {fa!r} — using the folder's")
+            x.log("info", "artist", f"the {said} says {merged.artist!r}; the folder name says {fa!r} — using the folder's")
             merged.artist, provenance["artist"] = fa, "folder_name"
         else:
-            hold.append(f"the folder name says {fa}, the {said} says {merged.artist}")
+            x.hold.append(f"the folder name says {fa}, the {said} says {merged.artist}")
             if not ma_in:
                 merged.artist, provenance["artist"] = fa, "folder_name"
 
-    # apply your learned corrections (from past manual fixes)
+
+def _apply_corrections(x: _Ident):
+    """Your learned corrections, from past fixes in Review."""
+    merged, provenance = x.merged, x.provenance
     if merged.artist:
         fix = library_index.correction_get("artist", merged.artist)
         if fix:
@@ -819,8 +880,9 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         vfix = library_index.correction_get("venue", merged.venue)
         if vfix:
             merged.venue = vfix.get("venue", merged.venue)
-            # where the city and state came from your own album tags, a nugs
-            # sidecar or setlist.fm, a learned venue rule doesn't overrule them
+            # where the city and state came from your own album tags, a
+            # provider's sidecar or setlist.fm, a learned venue rule doesn't
+            # overrule them
             trusted = {"curated_tags", "sidecar", "setlistfm"}
             if vfix.get("city") and provenance.get("city") not in trusted:
                 merged.city = vfix["city"]
@@ -830,7 +892,10 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
                 provenance["state"] = "corrected"
             provenance["venue"] = "corrected"
 
-    # text hygiene on everything that ends up in tags and folder names
+
+def _tidy_text(x: _Ident):
+    """Text hygiene on everything that ends up in tags and folder names."""
+    merged = x.merged
     for f in ShowMeta.FIELDS:
         setattr(merged, f, fix_text(getattr(merged, f)))
     merged.tracks = [
@@ -839,15 +904,16 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         if clean_track_title(t["title"]) and not is_junk_track_title(t["title"])
     ]
 
-    # ── Track-title validation (Plex/On-This-Day quality bar) ────────────
-    # Prefer setlist.fm's setlist over a shaky local one; cross-check every
-    # title against the self-seeding per-artist song corpus. If the setlist
-    # can't be confidently validated, flag it so it routes to Review rather
-    # than porting junk titles downstream.
-    titles_uncertain = ""
-    slf_tracks = slf_meta.tracks if slf_meta else []
+
+def _settle_titles(x: _Ident):
+    """Track titles (the Plex / On-This-Day quality bar): prefer setlist.fm's
+    setlist over a shaky local one, pair titles with files, and cross-check
+    against the per-artist song corpus. A setlist that can't be vouched for
+    is flagged so the show waits in Review instead of carrying junk titles."""
+    merged, provenance, log = x.merged, x.provenance, x.log
+    slf_tracks = x.slf_meta.tracks if x.slf_meta else []
     local_tracks = merged.tracks
-    audio_n = _count_audio(show_dir)
+    audio_n = _count_audio(x.show_dir)
 
     # 1) if setlist.fm has a setlist and the local one is weak, adopt it
     if slf_tracks:
@@ -863,7 +929,7 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
     # 1b) archive.org lists a title for every file of the recording — tuning
     # and crowd tracks included — so when its count matches the files and the
     # setlist's doesn't, it's the better pairing.
-    ia_tracks = ia_meta.tracks if ia_meta else []
+    ia_tracks = x.ia_meta.tracks if x.ia_meta else []
     if ia_tracks and audio_n and len(ia_tracks) == audio_n != len(merged.tracks) \
             and not _mass_tagged(ia_tracks):
         merged.tracks = [{**t, "title": clean_track_title(t["title"])} for t in ia_tracks]
@@ -877,38 +943,42 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         provenance.pop("tracks", None)
 
     # 2b) pair titles with files: set aside tuning/crowd/set-break files first
-    alignment = None
     if merged.tracks and audio_n:
         from . import align
-        alignment = align.plan(_audio_files(show_dir, AUDIO_EXTS), merged.tracks)
+        x.alignment = align.plan(_audio_files(x.show_dir, AUDIO_EXTS), merged.tracks)
 
     # 3) cross-check the final titles against the corpus + count
     if merged.tracks:
         recog = _corpus_recognition(merged.artist, merged.tracks)
         from_slf = provenance.get("tracks") == "setlistfm"
-        count_ok = alignment is None or alignment["ok"]
+        count_ok = x.alignment is None or x.alignment["ok"]
+        note = (x.alignment or {}).get("note", "")
         if not count_ok and from_slf:
-            titles_uncertain = alignment["note"]
+            x.titles_uncertain = note
         # unknown artist with no corpus yet: can't validate, so trust setlist.fm
         # but be wary of purely-local titles
         corpus_size = library_index.songs_count_for(merged.artist)
         if not from_slf:
             if corpus_size >= 5 and recog < 0.5:
-                titles_uncertain = (f"only {int(recog*100)}% of titles match known "
-                                    f"{merged.artist} songs")
+                x.titles_uncertain = (f"only {int(recog*100)}% of titles match known "
+                                      f"{merged.artist} songs")
             elif not count_ok:
-                titles_uncertain = alignment["note"]
-            elif corpus_size < 5 and not slf_meta:
+                x.titles_uncertain = note
+            elif corpus_size < 5 and not x.slf_meta:
                 # no corpus and no setlist.fm confirmation — can't vouch for these
                 if _looks_unreliable(merged.tracks):
-                    titles_uncertain = "unverified titles (no setlist.fm match)"
+                    x.titles_uncertain = "unverified titles (no setlist.fm match)"
 
     # 4) learn confirmed songs into the corpus for future cross-checks
     if merged.tracks and merged.artist:
-        confirmed = provenance.get("tracks") == "setlistfm"
-        library_index.learn_songs(
-            merged.artist, _songs_only(merged.tracks), confirmed=confirmed)
+        library_index.learn_songs(merged.artist, _songs_only(merged.tracks),
+                                  confirmed=provenance.get("tracks") == "setlistfm")
 
+
+def _settle_location(x: _Ident):
+    """Venue, city and state: re-tidy after merging, fill from your known
+    venues, then the bundled places list."""
+    merged, provenance = x.merged, x.provenance
     sanitize_location(merged)   # cross-source composition can re-mangle
 
     # gazetteer completion: a known venue fills in missing city/state
@@ -929,60 +999,66 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         from . import places
         places.apply(merged, provenance)
 
-    library_dir = Path(cfg["paths"]["library_dir"])
-    canon, in_library = canonical_artist(merged.artist, library_dir, cfg)
+
+def _settle_library_artist(x: _Ident):
+    """Map the artist onto your library's spelling, let setlist.fm overrule a
+    weak guess, split off the headliner, and check the folder's prefix."""
+    merged, provenance, slf = x.merged, x.provenance, x.slf_meta
+    library_dir = Path(x.cfg["paths"]["library_dir"])
+    canon, x.in_library = canonical_artist(merged.artist, library_dir, x.cfg)
     if canon != merged.artist:
         provenance["artist"] = provenance.get("artist", "") + "→library"
     merged.artist = canon
 
     # a setlist.fm-confirmed artist overrides a weak local guess it contradicts
-    if not in_library and slf_meta and slf_meta.artist \
-            and _norm(slf_meta.artist) != _norm(merged.artist) \
-            and (not merged.artist or sanity.names_related(slf_meta.artist, merged.artist)):
-        c2, h2 = canonical_artist(clean_artist(slf_meta.artist), library_dir, cfg)
+    if not x.in_library and slf and slf.artist \
+            and _norm(slf.artist) != _norm(merged.artist) \
+            and (not merged.artist or sanity.names_related(slf.artist, merged.artist)):
+        c2, h2 = canonical_artist(clean_artist(slf.artist), library_dir, x.cfg)
         if h2:
-            merged.artist, in_library = c2, True
+            merged.artist, x.in_library = c2, True
             provenance["artist"] = "setlistfm"
 
     # host artist: the headliner owns the Album Artist tag and the folder
-    host, host_in_lib = derive_host_artist(merged.artist, library_dir, cfg)
+    host, host_in_lib = derive_host_artist(merged.artist, library_dir, x.cfg)
     if host and host != merged.artist:
         merged.host_artist = host
         provenance["host_artist"] = "collab-split"
-    in_library = in_library or host_in_lib
+    x.in_library = x.in_library or host_in_lib
 
     # ── safety net (item 10): the folder's own prefix ('toad', 'mmj') belongs
     # to a different artist in your library than the one identified
-    other = _prefix_owner(show_dir.name, merged.artist, merged.host_artist, library_dir)
+    other = _prefix_owner(x.show_dir.name, merged.artist, merged.host_artist, library_dir)
     if other:
-        hold.append(f"the folder name starts '{other[0]}' ({other[1]}), but this was identified as "
-                    f"{merged.host_artist or merged.artist}")
+        x.hold.append(f"the folder name starts '{other[0]}' ({other[1]}), but this was identified as "
+                      f"{merged.host_artist or merged.artist}")
 
-    # source-of-truth hierarchy for the source type:
-    #   1. sidecar / curated bracket / explicit "Source:" line — authoritative
-    #   2. a source token in the FOLDER NAME — definitive when present
-    #   3. otherwise, infer from the info (.txt) file
-    #   4. otherwise, listen to the audio (below)
+
+def _settle_source_type(x: _Ident):
+    """Source-of-truth hierarchy for SBD / AUD / MTX:
+      1. sidecar / curated bracket / explicit "Source:" line — authoritative
+      2. a source token in the FOLDER NAME — definitive when present
+      3. otherwise, infer from the info (.txt) file
+      4. otherwise, listen to the audio"""
+    merged, provenance, folder = x.merged, x.provenance, x.folder_meta
     src_prov = provenance.get("source_type", "")
     explicit = (src_prov in ("sidecar", "curated_tags")
-                or (src_prov == "info_file"
-                    and getattr(info_meta, "source_explicit", False)))
-    if folder_meta.source_type == "MTX" and merged.source_type in ("SBD", "AUD") \
+                or (src_prov == "info_file" and x.info_meta.source_explicit))
+    if folder.source_type == "MTX" and merged.source_type in ("SBD", "AUD") \
             and src_prov not in ("sidecar", "curated_tags"):
         merged.source_type = "MTX"              # 'matrix' in the name: SBD + AUD mixed
         provenance["source_type"] = "folder_name"
     elif not explicit:
-        folder_src = folder_meta.source_type    # token found in the folder name
-        if folder_src:
-            if folder_src != merged.source_type:
-                merged.source_type = folder_src
+        if folder.source_type:                  # token found in the folder name
+            if folder.source_type != merged.source_type:
+                merged.source_type = folder.source_type
                 provenance["source_type"] = "folder_name"
         else:
             # folder is silent — fall through to the info file's inference
             info_text = ""
-            if info_path:
+            if x.info_path:
                 try:
-                    info_text = info_path.read_text(errors="replace")
+                    info_text = x.info_path.read_text(errors="replace")
                 except OSError:
                     pass
             comb = infer_source_type(info_text)
@@ -992,16 +1068,19 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
 
     # last resort for the source: listen to the tape itself
     if not merged.source_type and not merged.official \
-            and cfg["watcher"].get("audio_source_analysis", True):
-        probe = audioprobe.analyze_source(show_dir)
+            and x.cfg["watcher"].get("audio_source_analysis", True):
+        probe = audioprobe.analyze_source(x.show_dir)
         if probe["source_type"]:
             merged.source_type = probe["source_type"]
             provenance["source_type"] = "audio_analysis"
-        log("info", "listen", probe["detail"]
-            + (f" → {probe['source_type']}" if probe["source_type"] else ""))
+        x.log("info", "listen", probe["detail"]
+              + (f" → {probe['source_type']}" if probe["source_type"] else ""))
 
-    # ── last look (items 13–17): a value that can't be right is dropped, so the
-    # show waits in Review for it rather than being filed with junk
+
+def _last_look(x: _Ident):
+    """Items 13–17: a value that can't be right is dropped, so the show waits
+    in Review for it rather than being filed with junk."""
+    merged, provenance, log = x.merged, x.provenance, x.log
     if merged.venue and not sanity.plausible_venue(merged.venue):
         log("info", "venue", f"dropped {merged.venue!r} — doesn't look like a venue")
         merged.venue = ""
@@ -1016,26 +1095,28 @@ def identify(show_dir: Path, cfg: dict, log) -> dict:
         if not sanity.valid_state(st):
             log("info", "venue", f"dropped state {merged.state!r}")
         merged.state = st if sanity.valid_state(st) else ""
-    release = getattr(tags_meta, "release_title", "")
-    if release and not (folder_meta.date or info_meta.date):
-        hold.append(f"the album tag '{release}' looks like an official album, not a live recording")
+    release = x.tags_meta.release_title
+    if release and not (x.folder_meta.date or x.info_meta.date):
+        x.hold.append(f"the album tag '{release}' looks like an official album, not a live recording")
 
-    external_confirmed = bool(slf_meta or ia_meta)
+
+def _result(x: _Ident) -> dict:
+    merged, provenance = x.merged, x.provenance
+    external_confirmed = bool(x.slf_meta or x.ia_meta)
     artist_strong = bool(merged.artist) and (
-        in_library or curated or bool(sidecar.get("official"))
-        or agreement.get("artist", 0) >= 2
+        x.in_library or x.curated or bool(x.sidecar.get("official"))
+        or x.agreement.get("artist", 0) >= 2
         or str(provenance.get("artist", "")).startswith(("setlistfm", "archive_org")))
-    conf = score(merged, agreement, curated, sidecar,
-                 external_confirmed, in_library, artist_strong)
-    missing = [f for f in REQUIRED_FIELDS if not getattr(merged, f)]
-
+    conf = score(merged, x.agreement, x.curated, x.sidecar,
+                 external_confirmed, x.in_library, artist_strong)
     return {"meta": merged, "provenance": provenance, "confidence": conf,
-            "missing": missing, "curated": curated, "sidecar": sidecar,
-            "artist_in_library": in_library,
-            "titles_uncertain": titles_uncertain,
-            "hold": hold,
-            "alignment": ({"how": alignment["how"], "extras": alignment["extras"]}
-                          if alignment else None)}
+            "missing": [f for f in REQUIRED_FIELDS if not getattr(merged, f)],
+            "curated": x.curated, "sidecar": x.sidecar,
+            "artist_in_library": x.in_library,
+            "titles_uncertain": x.titles_uncertain,
+            "hold": x.hold,
+            "alignment": ({"how": x.alignment["how"], "extras": x.alignment["extras"]}
+                          if x.alignment else None)}
 
 
 # ── Album-art transplant ─────────────────────────────────────────────────────
@@ -1092,13 +1173,14 @@ def embed_art(folder: Path, data: bytes, mime: str) -> int:
                     a.save()
                     done += 1
             elif f.suffix.lower() == ".mp3":
-                a = ID3(f)
-                if not a.getall("APIC"):
-                    a.add(APIC(encoding=3, mime=mime, type=3,
-                               desc="Front Cover", data=data))
-                    a.save(f)
+                tags = ID3(f)
+                if not tags.getall("APIC"):
+                    tags.add(APIC(encoding=3, mime=mime, type=3,
+                                  desc="Front Cover", data=data))
+                    tags.save(f)
                     done += 1
-        except Exception:
+        except Exception as e:
+            db.log("warn", "art", f"{f.name}: cover art not embedded ({e})")
             continue
     if not any((folder / n).exists() for n in _ART_FILES):
         ext = ".png" if "png" in mime else ".jpg"
@@ -1243,7 +1325,8 @@ def artist_folder_conventions(artist_dir: Path):
     Prefixes are learned verbatim from existing names ('trey', 'gd',
     'Trey Anastasio ' ...). None = nothing to learn (new/empty artist)."""
     from collections import Counter
-    show_prefixes, year_prefixes = Counter(), Counter()
+    show_prefixes: Counter = Counter()
+    year_prefixes: Counter = Counter()
     if artist_dir.is_dir():
         for child in artist_dir.iterdir():
             if not child.is_dir():
@@ -1378,7 +1461,7 @@ def safe_name(name: str) -> str:
 
 
 def canonical_folder_name(meta: ShowMeta, cfg: dict,
-                          learned_prefix: str = None) -> str:
+                          learned_prefix: str | None = None) -> str:
     style = cfg["filing"]["folder_prefix_style"]
     host = meta.album_artist or meta.artist
     if learned_prefix is not None:
@@ -1444,8 +1527,8 @@ def file_show(show_dir: Path, meta: ShowMeta, cfg: dict, log, b: "fileops.Batch"
     perms.fix_path(artist_dir)
     try:
         library_index.add_show(meta)   # every filed show teaches the index
-    except Exception:
-        pass
+    except Exception as e:
+        log("warn", "index", f"filed, but not added to the library index: {e}")
     return dest
 
 
@@ -1467,7 +1550,7 @@ def _mass_tagged(tracks: list) -> bool:
     counts = Counter(titles)
     if len(counts) == 1:
         return True
-    top, n = counts.most_common(1)[0]
+    _top, n = counts.most_common(1)[0]
     # a genuine reprise repeats 2-3x; mass-tag has one title on ~everything
     return n / len(tracks) >= 0.8 and n >= 4
 
@@ -1607,9 +1690,9 @@ def process_show(show_dir: Path) -> dict:
             needs_review = True
             note = (note + " · " if note else "") + f"New artist: {meta.artist}"
 
-        common = dict(confidence=conf, meta=meta.to_dict(),
-                      provenance=result["provenance"], missing=missing,
-                      notes=note)
+        common = {"confidence": conf, "meta": meta.to_dict(),
+                      "provenance": result["provenance"], "missing": missing,
+                      "notes": note}
 
         if needs_review:
             db.update_show(show_id, status="review", **common)
@@ -1690,8 +1773,9 @@ def process_pair(early: Path, late: Path) -> dict:
             if b.id:
                 try:
                     fileops.undo(b.id)          # put whatever moved back where it was
-                except Exception:
-                    pass
+                except Exception as ue:
+                    db.log("error", "file", f"couldn't put everything back after that failure "
+                        f"({ue}) — Activity → Undo on batch {b.id} will retry")
             for i in (*ids.values(), pair_id):
                 db.update_show(i, status="error", error=f"couldn't combine the early and late show: {e}")
             db.log("error", "pair", f"{early.name} + {late.name}: couldn't combine them: {e}")
@@ -1702,7 +1786,7 @@ def process_pair(early: Path, late: Path) -> dict:
     # dry run: identify both halves where they are and say what would happen
     def log(level, event, detail=""):
         db.log(level, event, f"{early.name} + {late.name}: {detail}")
-    ids = [db.upsert_show(str(p), status="processing") for p in (early, late)]
+    half_ids = [db.upsert_show(str(p), status="processing") for p in (early, late)]
     try:
         result = pairs.combine(identify(early, cfg, log), identify(late, cfg, log), early, late)
         meta, conf, missing = result["meta"], result["confidence"], result["missing"]
@@ -1711,8 +1795,8 @@ def process_pair(early: Path, late: Path) -> dict:
         b.mkdir(parent)
         b.move(early, parent / early.name)
         b.move(late, parent / late.name)
-        common = dict(confidence=conf, meta=meta.to_dict(), provenance=result["provenance"],
-                      missing=missing)
+        common = {"confidence": conf, "meta": meta.to_dict(), "provenance": result["provenance"],
+                      "missing": missing}
         if missing or conf < threshold:
             note = (f"Dry run: early + late show — would combine with {late.name} "
                     f"and send to Review (confidence {conf}"
@@ -1725,13 +1809,13 @@ def process_pair(early: Path, late: Path) -> dict:
             b.note("tags", files=_count_audio(early) + _count_audio(late), album=meta.album_title,
                    discs="1 = early show, 2 = late show")
             note = f"Dry run: early + late show — would combine with {late.name} and file to {dest}"
-        out = _plan(ids[0], b, log, note, dest=dest, **common)
-        db.update_show(ids[1], status="planned", confidence=conf,
+        out = _plan(half_ids[0], b, log, note, dest=dest, **common)
+        db.update_show(half_ids[1], status="planned", confidence=conf,
                        notes=f"Dry run: the late show of {early.name} — they'd be filed together",
                        plan=json.dumps({"dest": dest, "ops": b.plan}))
         return out
     except Exception as e:
-        for i in ids:
+        for i in half_ids:
             db.update_show(i, status="error", error=str(e))
         log("error", "error", str(e))
         return {"status": "error", "error": str(e)}
@@ -1985,8 +2069,8 @@ def _learn_from_brig_edit(guessed: dict, final: "ShowMeta", log) -> None:
             try:
                 library_index.correction_set("artist", g_artist, f_artist)
                 log("info", "learned", f"artist correction: {g_artist!r} → {f_artist!r}")
-            except Exception:
-                pass
+            except Exception as e:
+                log("warn", "learned", f"artist correction not saved: {e}")
 
     # venue: a corrected venue teaches a venue→(venue,city,state) rule, keyed
     # on both the full wrong string and its head segment (parse paths differ)
@@ -2001,8 +2085,8 @@ def _learn_from_brig_edit(guessed: dict, final: "ShowMeta", log) -> None:
             if _norm(k) and _norm(k) != _norm(final.venue):
                 try:
                     library_index.correction_set("venue", k, trio)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log("warn", "learned", f"venue correction not saved: {e}")
         log("info", "learned",
             f"venue correction: {g_venue!r} → {final.venue!r}")
 
@@ -2012,5 +2096,5 @@ def _learn_from_brig_edit(guessed: dict, final: "ShowMeta", log) -> None:
             library_index._upsert_venue(library_index._conn(),
                                         final.venue, final.city, final.state)
             library_index._conn().commit()
-        except Exception:
-            pass
+        except Exception as e:
+            log("warn", "learned", f"venue not added to the index: {e}")

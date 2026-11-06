@@ -7,10 +7,11 @@ recordings**.
 ## Running it
 
 ```sh
-pip install -r requirements.txt pytest httpx ruff
+pip install -r requirements-dev.txt
 python -m app                 # http://127.0.0.1:8189
 python -m pytest tests -q     # needs ffmpeg on PATH
-ruff check .
+ruff check .                  # lint
+python -m mypy                # type check
 ```
 
 ## Ground rules
@@ -27,6 +28,19 @@ ruff check .
 - **Be polite to the sites Reelarr talks to.** Rate-limit, identify yourself
   honestly, and follow each site's rules on automated access.
 - **Tests with the change.** Bugs get a test that fails without the fix.
+
+## Finding your way around
+
+- `app/pipeline.py` — a show from the watch folder to the library.
+  `identify()` is an outline of named steps (read local → look up online →
+  merge → corrections → titles → location → artist → source type → last
+  look); start there.
+- `app/metadata.py` — reading folder names, info files and tags.
+- `app/align.py` — pairing setlist titles with files.
+- `app/fileops.py` — every file change, with dry run and undo.
+- **"Barbosa"** in the code is the private tool Reelarr grew out of. Those
+  parts only matter to someone migrating an old Barbosa install, and are
+  marked as legacy.
 
 ## Pull requests
 

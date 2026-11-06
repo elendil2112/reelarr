@@ -3,6 +3,7 @@
 Only needs the web URL and the web password; there's no username. Labelling
 requires Deluge's Label plugin (Preferences → Plugins → Label).
 """
+from typing import ClassVar
 import base64
 import json
 import re
@@ -145,11 +146,11 @@ class DelugeClient(DownloadClient):
         return AddResult(tid, already, self._set_label(tid, label), uri[:60])
 
     # -- listing ------------------------------------------------------------
-    _FIELDS = ["name", "progress", "save_path", "state", "label", "is_finished",
+    _FIELDS: ClassVar = ["name", "progress", "save_path", "state", "label", "is_finished",
                "total_remaining", "queue", "total_wanted", "total_done",
                "download_payload_rate", "upload_payload_rate", "eta", "num_seeds",
                "num_peers", "ratio", "time_added"]
-    _STATUS = {"downloading": "downloading", "seeding": "seeding", "paused": "paused",
+    _STATUS: ClassVar = {"downloading": "downloading", "seeding": "seeding", "paused": "paused",
                "checking": "checking", "queued": "queued", "error": "error",
                "allocating": "checking", "moving": "checking"}
 

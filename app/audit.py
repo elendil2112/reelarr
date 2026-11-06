@@ -113,7 +113,7 @@ def learn_from_corrections() -> dict:
     if not library_dir.is_dir():
         return {"error": "library dir missing"}
 
-    disk = {}
+    disk: dict = {}
     for artist_name, show in _walk_shows(library_dir):
         m = re.search(r"((?:19|20)\d{2}-\d{2}-\d{2})", show.name)
         if m:
@@ -152,7 +152,7 @@ def learn_from_corrections() -> dict:
         # 2) venue/location correction: you retagged the album
         tags = _first_tags(actual_dir)
         if tags.get("album"):
-            actual_meta, complete = parse_album_string(tags["album"])
+            actual_meta, _complete = parse_album_string(tags["album"])
             rv, av = meta.get("venue", ""), actual_meta.venue
             if av and actual_meta.city and rv and _norm(av) != _norm(rv) \
                     and sanity.plausible_location(actual_meta.city, actual_meta.state):
@@ -236,7 +236,8 @@ def _flags_for(folder_name: str, tags: dict, meta: dict) -> list:
 def _title_problems(folder: Path, cap: int = 60) -> list:
     """Assess the written TITLE tags of a filed show and flag anything off:
     duplicative titles, missing/placeholder titles, or junk titles."""
-    titles, total_audio = [], 0
+    titles: list = []
+    total_audio = 0
     for f in sorted(folder.rglob("*")):
         if f.suffix.lower() in AUDIO_EXTS and f.is_file():
             total_audio += 1
@@ -477,6 +478,7 @@ def job_state(key: str) -> dict:
 def list_exports() -> list:
     if not EXPORT_DIR.is_dir():
         return []
+    # barbosa_audit_*: legacy exports from before the rename
     return sorted((p.name for p in [*EXPORT_DIR.glob("reelarr_audit_*.json"), *EXPORT_DIR.glob("barbosa_audit_*.json")]),
                   reverse=True)[:10]
 

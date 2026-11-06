@@ -15,6 +15,7 @@ import re
 import sqlite3
 import threading
 import time
+from typing import Any
 from pathlib import Path
 
 from mutagen import File as MutagenFile
@@ -134,7 +135,7 @@ def venue_lookup(venue: str):
     return (r["venue"], r["city"], r["state"]) if r else None
 
 
-_city_cache = {"at": 0.0, "map": {}}
+_city_cache: dict[str, Any] = {"at": 0.0, "map": {}}
 
 
 def city_states(city: str) -> dict:
@@ -143,7 +144,7 @@ def city_states(city: str) -> dict:
     import time as _t
     from .places import fold
     if _t.time() - _city_cache["at"] > 300:
-        m = {}
+        m: dict = {}
         try:
             for r in _conn().execute("SELECT city, state FROM venues WHERE city != '' AND state != ''"):
                 d = m.setdefault(fold(r["city"]), {})
@@ -238,11 +239,11 @@ def purge_bad_corrections() -> list:
     return gone
 
 
-def corrections_list(kind: str = None):
+def corrections_list(kind: str | None = None):
     """All learned corrections, for review/management in the GUI."""
     import json as _json
     q = "SELECT kind, wrong_norm, right FROM corrections"
-    args = ()
+    args: tuple = ()
     if kind:
         q += " WHERE kind=?"
         args = (kind,)
@@ -326,7 +327,7 @@ def scan(library_dir) -> dict:
         return {"skipped": "scan already running"}
     _scan_state["running"] = True
     started = time.time()
-    folders = 0
+    folders = unreadable = 0
     try:
         library_dir = Path(library_dir)
         if not library_dir.is_dir():
@@ -336,7 +337,7 @@ def scan(library_dir) -> dict:
             if not artist_dir.is_dir() or artist_dir.name.startswith((".", "_")):
                 continue
             _upsert_artist(c, artist_dir.name)
-            show_dirs = []
+            show_dirs: list = []
             for child in artist_dir.iterdir():
                 if not child.is_dir():
                     continue
@@ -364,7 +365,10 @@ def scan(library_dir) -> dict:
                     album_meta, _ = parse_album_string(tag("album"))
                     _upsert_venue(c, album_meta.venue, album_meta.city,
                                   album_meta.state)
-                except Exception:
+                except Exception as e:
+                    unreadable += 1
+                    if unreadable <= 5:
+                        db.log("warn", "index", f"library scan skipped {show.name}: {e}")
                     continue
                 if folders % 500 == 0:
                     c.commit()
@@ -376,7 +380,8 @@ def scan(library_dir) -> dict:
         db.log("info", "index",
                f"library scan finished in {time.time()-started:.0f}s — "
                f"{folders} shows, {result['artists']} artists, "
-               f"{result['venues']} venues, {result['hosts']} host mappings")
+               f"{result['venues']} venues, {result['hosts']} host mappings"
+               + (f"; {unreadable} show(s) skipped, tags unreadable" if unreadable else ""))
         return result
     finally:
         _scan_state["running"] = False

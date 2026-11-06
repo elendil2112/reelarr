@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_safety import fresh_app, offline  # noqa: E402
-from test_auth import client, setup_admin  # noqa: E402
+from test_safety import fresh_app, offline
+from test_auth import client, setup_admin
 
 
 def test_security_headers_everywhere(tmp_path):

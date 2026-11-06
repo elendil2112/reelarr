@@ -43,7 +43,8 @@ def main():
     import logging
     import uvicorn
     logging.getLogger("uvicorn.access").addFilter(_RedactAccessLog())
-    host = os.environ.get("REELARR_HOST") or ("0.0.0.0" if paths.in_container() else "127.0.0.1")
+    # all interfaces only inside a container, where the port mapping decides exposure
+    host = os.environ.get("REELARR_HOST") or ("0.0.0.0" if paths.in_container() else "127.0.0.1")  # noqa: S104
     try:
         port = int(os.environ.get("REELARR_PORT") or 8189)
     except ValueError:

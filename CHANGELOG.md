@@ -4,7 +4,34 @@ All notable changes to Reelarr. Versions follow [Semantic Versioning](https://se
 until 1.0, minor versions may change behaviour, and every upgrade backs up your
 databases first.
 
-## Unreleased
+## 0.2.0 — 2026-11-05
+
+**Upgrading:** nothing to do. Your databases and settings are backed up and
+upgraded on first start, and existing installs keep filing new artists
+themselves (new installs now send a new artist's first show to Review).
+
+### Getting ready to share
+- **New installs are more careful:** the first show by an artist that isn't
+  in your library waits in Review, so a misread artist can't quietly start a
+  new folder. Existing installs keep their behaviour; it's one setting
+  (Settings → Filing → new artist policy).
+- **Library re-check (Maintenance) fixed and tested.** It asked setlist.fm
+  about the year folder instead of the artist when the library uses year
+  folders, so it found nothing; it paired titles by position, so a tuning
+  track shifted every title; it could drop the artist prefix when renaming a
+  "name"-style folder; and a failed tag write was ignored. All fixed, and
+  every path that writes is now tested on real files, including undo.
+- **Failures are reported instead of swallowed:** lookups say why they
+  failed (a rejected setlist.fm key, an outage) once in Activity; so do
+  missed tag snapshots for undo, cover art, the library index, learned
+  corrections, unreadable sidecars and a failed roll-back.
+- **Bare metal:** `run.sh` / `run.bat` set up a private Python environment on
+  first run, and `contrib/reelarr.service` runs it as a systemd service.
+- **Code health:** the 364-line identify step is now an outline of named
+  steps; stricter linting (bugbear, bandit, pyupgrade) and type checking run
+  in CI; dev tools are pinned in `requirements-dev.txt`; CI jobs time out
+  instead of hanging; CI checks the published image can be pulled without
+  logging in. Tests: 248 → 310.
 
 ### Privacy, notices and readable colours
 - README: a **Privacy** section (no telemetry; exactly which services Reelarr
@@ -147,7 +174,7 @@ databases first.
 - Recently grabbed shows each show's status, progress and ETA from the
   download client, and keeps up to 100 grabs instead of 15.
 
-## 0.1.0 — first public release
+## 0.1.0 — 2026-10-05 — first public release
 
 ### Identify, tag and file
 - Reads everything a live recording comes with — etree-style folder names, info

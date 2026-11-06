@@ -11,6 +11,43 @@ from .metadata import ShowMeta, extract_date, normalise_source_type, extract_off
 
 _UA = "Reelarr/1.0 (personal live-music archiver)"
 
+# Failures stay soft (a lookup that fails just returns nothing), but they're
+# logged — once per kind of failure per service, so an hour of retries after
+# a bad API key doesn't flood Activity.
+_warned: set = set()
+
+
+def _get_json(url: str, service: str, headers: dict | None = None, timeout: int = 12):
+    """GET a JSON document. Returns the parsed body, or None after logging why."""
+    req = urllib.request.Request(url, headers={"User-Agent": _UA, **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None                         # setlist.fm: "no setlist that day"
+        why = {401: "rejected the API key — check it in Settings → Sources",
+               403: "refused the request — check the API key in Settings → Sources",
+               429: "is rate-limiting Reelarr; lookups resume on their own"
+               }.get(e.code, f"answered HTTP {e.code}")
+        _warn(service, f"{service} {why}", key=e.code)
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        _warn(service, f"couldn't reach {service}: {getattr(e, 'reason', e)}", key="net")
+    except ValueError:
+        _warn(service, f"{service} sent back something that isn't JSON", key="json")
+    return None
+
+
+def _warn(service: str, msg: str, key=None):
+    if (service, key) in _warned:
+        return
+    _warned.add((service, key))
+    try:
+        from . import database as db
+        db.log("warn", "sources", msg)
+    except Exception:       # logging must never break a lookup
+        pass
+
 
 # ── Internet Archive ─────────────────────────────────────────────────────────
 
@@ -25,13 +62,8 @@ def is_ia_identifier(name: str) -> bool:
 def fetch_ia(identifier: str, timeout: int = 12):
     if not is_ia_identifier(identifier):
         return None
-    url = f"https://archive.org/metadata/{urllib.parse.quote(identifier, safe='')}"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": _UA})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read())
-    except Exception:
-        return None
+    data = _get_json(f"https://archive.org/metadata/{urllib.parse.quote(identifier, safe='')}",
+                     "archive.org", timeout=timeout)
     if not data or "metadata" not in data:
         return None
 
@@ -94,6 +126,13 @@ def fetch_ia(identifier: str, timeout: int = 12):
 
 # ── setlist.fm ───────────────────────────────────────────────────────────────
 
+_SLF = "https://api.setlist.fm/rest/1.0/search/setlists"
+
+
+def _slf_headers(api_key: str) -> dict:
+    return {"x-api-key": api_key, "Accept": "application/json", "Accept-Language": "en"}
+
+
 def fetch_setlistfm(artist: str, date: str, api_key: str, timeout: int = 12):
     if not (api_key and artist and date):
         return None
@@ -101,46 +140,14 @@ def fetch_setlistfm(artist: str, date: str, api_key: str, timeout: int = 12):
         y, m, d = date.split("-")
     except ValueError:
         return None
-    params = urllib.parse.urlencode(
-        {"artistName": artist, "date": f"{d}-{m}-{y}", "p": "1"})
-    req = urllib.request.Request(
-        f"https://api.setlist.fm/rest/1.0/search/setlists?{params}",
-        headers={"x-api-key": api_key, "Accept": "application/json",
-                 "Accept-Language": "en", "User-Agent": _UA})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read())
-    except Exception:
-        return None
-
-    setlists = data.get("setlist", [])
+    params = urllib.parse.urlencode({"artistName": artist, "date": f"{d}-{m}-{y}", "p": "1"})
+    data = _get_json(f"{_SLF}?{params}", "setlist.fm", _slf_headers(api_key), timeout)
+    setlists = (data or {}).get("setlist", [])
     if not setlists:
         return None
-    sl = setlists[0]
-    meta = ShowMeta()
-    meta.artist = sl.get("artist", {}).get("name", artist)
-    raw = sl.get("eventDate", "")
-    try:
-        dd, mm, yyyy = raw.split("-")
-        meta.date = f"{yyyy}-{mm}-{dd}"
-    except ValueError:
-        meta.date = date
-
-    venue = sl.get("venue", {})
-    meta.venue = venue.get("name", "")
-    city = venue.get("city", {})
-    meta.city = city.get("name", "")
-    meta.state = _setlistfm_state(city)
-
-    n = 0
-    for set_no, s in enumerate(sl.get("sets", {}).get("set", []), 1):
-        disc = 99 if s.get("encore") else 1
-        for song in s.get("song", []):
-            name = song.get("name", "").strip()
-            if name:
-                n += 1
-                meta.tracks.append({"num": n, "title": name, "disc": disc, "set": set_no,
-                                    **({"segue": True} if song.get("segue") else {})})
+    meta = _slf_result_to_meta(setlists[0])
+    meta.artist = meta.artist or artist
+    meta.date = meta.date or date
     return meta
 
 
@@ -195,15 +202,8 @@ def fetch_setlistfm_reverse(date: str, city: str, venue: str, api_key: str,
     if city:
         q["cityName"] = city
     params = urllib.parse.urlencode(q)
-    req = urllib.request.Request(
-        f"https://api.setlist.fm/rest/1.0/search/setlists?{params}",
-        headers={"x-api-key": api_key, "Accept": "application/json",
-                 "Accept-Language": "en", "User-Agent": _UA})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            setlists = json.loads(r.read()).get("setlist", [])
-    except Exception:
-        return None
+    data = _get_json(f"{_SLF}?{params}", "setlist.fm", _slf_headers(api_key), timeout)
+    setlists = (data or {}).get("setlist", [])
     if not setlists:
         return None
 
@@ -262,30 +262,21 @@ def fetch_mb_genre(artist_name: str, timeout: int = 10) -> str:
     slug = re.sub(r"[^a-z0-9]", "", artist_name.lower())
     if slug in _genre_cache:
         return _genre_cache[slug]
-    headers = {"User-Agent": _UA, "Accept": "application/json"}
-    try:
-        q = urllib.parse.quote(f'artist:"{artist_name}"')
-        req = urllib.request.Request(
-            f"https://musicbrainz.org/ws/2/artist?query={q}&fmt=json", headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            artists = json.loads(r.read()).get("artists", [])
-        if not artists:
-            raise ValueError
-        mbid = artists[0].get("id", "")
+    headers = {"Accept": "application/json"}
+    genre = ""
+    q = urllib.parse.quote(f'artist:"{artist_name}"')
+    found = _get_json(f"https://musicbrainz.org/ws/2/artist?query={q}&fmt=json",
+                      "MusicBrainz", headers, timeout)
+    artists = (found or {}).get("artists", [])
+    if artists and artists[0].get("id"):
         time.sleep(1.1)   # MB anonymous rate limit
-        req = urllib.request.Request(
-            f"https://musicbrainz.org/ws/2/artist/{mbid}?inc=genres+tags&fmt=json",
-            headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read())
-        genres = data.get("genres", []) or data.get("tags", [])
-        genre = ""
-        for g in genres:
-            name = g.get("name", "").strip().lower()
+        data = _get_json(f"https://musicbrainz.org/ws/2/artist/{artists[0]['id']}"
+                         "?inc=genres+tags&fmt=json", "MusicBrainz", headers, timeout) or {}
+        for g in data.get("genres", []) or data.get("tags", []):
+            name = (g.get("name") or "").strip().lower()
             if name and name not in _MB_BLOCKLIST:
                 genre = name.title()
                 break
-    except Exception:
-        genre = ""
-    _genre_cache[slug] = genre
+    if found is not None:          # don't cache a network failure
+        _genre_cache[slug] = genre
     return genre

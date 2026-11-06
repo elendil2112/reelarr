@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_safety import fresh_app, make_show, offline  # noqa: E402
+from test_safety import fresh_app, make_show, offline
 
 pytestmark = pytest.mark.skipif(__import__("shutil").which("ffmpeg") is None, reason="needs ffmpeg")
 

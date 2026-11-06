@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ff
 
 # ── harness ──────────────────────────────────────────────────────────────────
 
-def fresh_app(tmp: Path, settings: dict = None):
+def fresh_app(tmp: Path, settings: dict | None = None):
     """Import the app against a brand-new config/watch/library trio."""
     for d in ("config", "watch", "music"):
         (tmp / d).mkdir(exist_ok=True)
@@ -39,11 +39,12 @@ def fresh_app(tmp: Path, settings: dict = None):
     return mods
 
 
-def offline(settings: dict = None) -> dict:
+def offline(settings: dict | None = None) -> dict:
     s = {"sources": {"use_internet_archive": False, "use_setlistfm": False,
                      "use_musicbrainz_genre": False},
          "watcher": {"audio_source_analysis": False},
-         "filing": {"auto_file_threshold": 50, "hold_uncertain_titles": False}}
+         "filing": {"auto_file_threshold": 50, "hold_uncertain_titles": False,
+                    "new_artist_policy": "auto"}}
     for k, v in (settings or {}).items():
         s.setdefault(k, {}).update(v) if isinstance(v, dict) else s.__setitem__(k, v)
     return s
@@ -122,7 +123,7 @@ def test_barbosa_install_migrates_without_touching_originals(tmp_path):
     assert hashlib.sha1((cfg / "barbosa.db").read_bytes()).hexdigest() == before
     st = m["migrations"].status()
     assert st["reelarr.db"] == st["latest"]["reelarr.db"] >= 4
-    assert st["library_index.db"] == st["latest"]["library_index.db"] and st["settings.json"] == 3
+    assert st["library_index.db"] == st["latest"]["library_index.db"] and st["settings.json"] == 4
     rows = m["database"].list_shows()
     assert rows and rows[0]["folder_name"] == "gd1977-05-08" and rows[0]["plan"] == ""
     s = json.loads((cfg / "settings.json").read_text())
@@ -168,7 +169,7 @@ def test_failed_step_rolls_back_and_names_backup(tmp_path, monkeypatch):
     def boom(c):
         c.execute("ALTER TABLE shows ADD COLUMN half_done TEXT")
         raise RuntimeError("simulated failure")
-    steps = mig.MAIN_STEPS[:2] + [(3, "boom", boom)]
+    steps = [*mig.MAIN_STEPS[:2], (3, "boom", boom)]
     with pytest.raises(mig.MigrationError, match="backups"):
         mig.migrate_db(db_path, steps, "reelarr.db")
     c = sqlite3.connect(db_path)

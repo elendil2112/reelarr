@@ -33,7 +33,7 @@ Reelarr learns the correction for every show after it.
   <img src="docs/screenshots/review.png" width="49%" alt="Review: shows Reelarr wasn't sure about, ready to correct">
 </p>
 
-> Version 0.1.0 — the first public release. See [`CHANGELOG.md`](CHANGELOG.md).
+> Version 0.2.0. See [`CHANGELOG.md`](CHANGELOG.md).
 >
 > This project is entirely vibecoded with Claude Opus 5.5.
 
@@ -86,18 +86,29 @@ REELARR_MEDIA_PATH=/mnt/user
 
 ### Bare metal
 
-Python 3.10+ and ffmpeg:
+You need Python 3.10+, ffmpeg and git.
 
 ```sh
-pip install -r requirements.txt
-python -m app
+git clone https://github.com/elendil2112/reelarr.git
+cd reelarr
+./run.sh            # Windows: run.bat
 ```
 
-It listens on `127.0.0.1:8189` — this computer only. Set
-`REELARR_HOST=0.0.0.0` to reach it from other machines (keep the login on).
-Settings live in your user data folder (`~/.config/reelarr`,
-`~/Library/Application Support/Reelarr`, or `%APPDATA%\Reelarr`); override
-with `REELARR_CONFIG`.
+The first run makes a private Python environment in `.venv` and installs
+what Reelarr needs; later runs start straight away. Then open
+<http://127.0.0.1:8189>.
+
+- **Update:** `git pull`, then start it again — it re-installs only if the
+  requirements changed.
+- **Run it in the background (Linux):** `contrib/reelarr.service` is a
+  systemd user service; the steps are at the top of the file.
+- **Other machines:** it listens on this computer only. Set
+  `REELARR_HOST=0.0.0.0` to open it up (keep the login on), and
+  `REELARR_PORT` to change the port.
+- **Where your data lives:** `~/.config/reelarr`,
+  `~/Library/Application Support/Reelarr`, or `%APPDATA%\Reelarr` — never in
+  the code folder, so updating can't touch it. Override with
+  `REELARR_CONFIG`.
 
 ---
 
@@ -308,9 +319,10 @@ deletes, and can undo — but keep a backup of anything you can't replace.
 ## Development
 
 ```sh
-pip install -r requirements.txt pytest httpx ruff
+pip install -r requirements-dev.txt
 python -m pytest tests -q     # needs ffmpeg
-ruff check .
+ruff check .                  # lint
+python -m mypy                # type check
 ```
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security problems: please report them

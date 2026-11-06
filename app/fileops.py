@@ -105,15 +105,16 @@ def snapshot_tags(path: Path) -> dict:
                     "tags": {k: (list(a[k]) if k in a else None) for k in _FLAC_KEYS}}
         from mutagen.id3 import ID3, ID3NoHeaderError
         try:
-            a = ID3(path)
+            tags = ID3(path)
         except ID3NoHeaderError:
-            return {"fmt": "id3", "tags": {k: None for k in _ID3_FRAMES}, "noheader": True}
+            return {"fmt": "id3", "tags": dict.fromkeys(_ID3_FRAMES), "noheader": True}
         out = {}
         for k in _ID3_FRAMES:
-            frames = a.getall(k)
+            frames = tags.getall(k)
             out[k] = [str(t) for f in frames for t in getattr(f, "text", [])] if frames else None
         return {"fmt": "id3", "tags": out}
-    except Exception:
+    except Exception as e:
+        db.log("warn", "undo", f"{Path(path).name}: couldn't record its tags before changing them ({e}) — undo won't restore them")
         return {}
 
 
@@ -134,18 +135,18 @@ def restore_tags(path: Path, snap: dict) -> bool:
             return True
         from mutagen import id3
         try:
-            a = id3.ID3(path)
+            tags = id3.ID3(path)
         except id3.ID3NoHeaderError:
-            a = id3.ID3()
+            tags = id3.ID3()
         for k, v in snap["tags"].items():
-            a.delall(k)
+            tags.delall(k)
             if v:
                 frame = getattr(id3, k)
                 if k == "COMM":
-                    a.add(frame(encoding=3, lang="eng", desc="", text=v))
+                    tags.add(frame(encoding=3, lang="eng", desc="", text=v))
                 else:
-                    a.add(frame(encoding=3, text=v))
-        a.save(path)
+                    tags.add(frame(encoding=3, text=v))
+        tags.save(path)
         return True
     except Exception:
         return False
@@ -159,7 +160,7 @@ def dry_run_enabled() -> bool:
 
 class Batch:
     def __init__(self, label: str, kind: str = "", show_id=None,
-                 dry_run: bool = None, undo_state: dict = None):
+                 dry_run: bool | None = None, undo_state: dict | None = None):
         self.label = label
         self.kind = kind
         self.show_id = show_id
@@ -167,7 +168,7 @@ class Batch:
         self.undo_state = undo_state or {}
         self.id = None
         self.seq = 0
-        self.plan = []          # dry-run: what would happen
+        self.plan: list = []    # dry-run: what would happen
         self.ops = 0
         self._stamp = time.strftime("%Y-%m-%d")
 
@@ -240,7 +241,7 @@ class Batch:
     def rename(self, src: Path, dst: Path) -> Path:
         return self.move(src, dst)
 
-    def trash(self, path: Path, reason: str = "") -> Path:
+    def trash(self, path: Path, reason: str = "") -> Path | None:
         path = Path(path)
         if not path.exists() and not self.dry_run:
             return None
@@ -264,7 +265,7 @@ class Batch:
         shutil.move(str(path), str(dst))
         return dst
 
-    def retag(self, path: Path, write_fn, changes: dict = None):
+    def retag(self, path: Path, write_fn, changes: dict | None = None):
         """Rewrite a file's tags via write_fn(path), keeping a snapshot of the
         old values for undo. changes is a short summary used in dry-run plans."""
         path = Path(path)
@@ -277,8 +278,8 @@ class Batch:
 
 
 @contextmanager
-def batch(label: str, kind: str = "", show_id=None, dry_run: bool = None,
-          undo_state: dict = None):
+def batch(label: str, kind: str = "", show_id=None, dry_run: bool | None = None,
+          undo_state: dict | None = None):
     b = Batch(label, kind, show_id, dry_run, undo_state)
     yield b
 
@@ -330,6 +331,9 @@ def undo(batch_id: int) -> dict:
         detail = json.loads(op["detail"] or "{}")
         try:
             if kind in ("move", "trash"):
+                if src is None or dst is None:
+                    conflicts.append(f"undo entry {op['id']} is incomplete — skipped")
+                    continue
                 if not dst.exists():
                     conflicts.append(f"{dst} is gone — can't put {src.name} back")
                     continue
@@ -340,11 +344,13 @@ def undo(batch_id: int) -> dict:
                 shutil.move(str(dst), str(src))
                 restored += 1
             elif kind == "retag":
-                if restore_tags(src, detail.get("before") or {}):
+                if src is None:
+                    conflicts.append(f"undo entry {op['id']} is incomplete — skipped")
+                elif restore_tags(src, detail.get("before") or {}):
                     restored += 1
                 else:
                     conflicts.append(f"couldn't restore tags on {src.name}")
-            elif kind == "mkdir":
+            elif kind == "mkdir" and dst is not None:
                 try:
                     dst.rmdir()          # only if empty — never removes content
                 except OSError:
@@ -371,7 +377,7 @@ def undo(batch_id: int) -> dict:
 
 # ── Housekeeping ─────────────────────────────────────────────────────────────
 
-def purge_trash(days: int = None) -> int:
+def purge_trash(days: int | None = None) -> int:
     """Delete trash day-folders older than the retention period. This is the
     ONLY place Reelarr permanently removes files, and only from its own trash."""
     days = int(config.load().get("safety", {}).get("trash_days", 30) if days is None else days)
@@ -398,7 +404,7 @@ def purge_trash(days: int = None) -> int:
     return purged
 
 
-def prune_journal(days: int = None) -> int:
+def prune_journal(days: int | None = None) -> int:
     days = int(config.load().get("safety", {}).get("undo_keep_days", 90) if days is None else days)
     if days <= 0:
         return 0
