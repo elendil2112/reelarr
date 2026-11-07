@@ -4,6 +4,12 @@ All notable changes to Reelarr. Versions follow [Semantic Versioning](https://se
 until 1.0, minor versions may change behaviour, and every upgrade backs up your
 databases first.
 
+## Unreleased
+
+- README screenshots retaken for 0.2.0 (new colours, Notes, queue search,
+  track titles in Review). `tools/screenshots.py` rebuilds them from a
+  throwaway demo install, so they can be refreshed with each release.
+
 ## 0.2.0 — 2026-11-05
 
 **Upgrading:** nothing to do. Your databases and settings are backed up and

@@ -30,7 +30,7 @@ Reelarr learns the correction for every show after it.
   <img src="docs/screenshots/shows.png" width="49%" alt="Shows: every show handled, filed with a consistent name">
   <img src="docs/screenshots/queue.png" width="49%" alt="Queue: wanted releases and a sortable download table">
   <img src="docs/screenshots/artists.png" width="49%" alt="Artists: monitored artists and what each check found">
-  <img src="docs/screenshots/review.png" width="49%" alt="Review: shows Reelarr wasn't sure about, ready to correct">
+  <img src="docs/screenshots/review.png" width="49%" alt="Review: correct a show and its track titles, tick tracks that aren't songs">
 </p>
 
 > Version 0.2.0. See [`CHANGELOG.md`](CHANGELOG.md).
